@@ -157,6 +157,11 @@ async def close_position(pos_id: str, symbol: str = Body(...)):
     rec = order_manager.close_position_manual(pos_id, cur_p)
     return {"status": "success", "record": rec, "portfolio": order_manager.get_summary()}
 
+@app.post("/api/pine/verify")
+async def verify_pine_script(code: str = Body(..., embed=True)):
+    """Statically verifies Pine Script syntax and returns diagnostic issues with suggested fixes."""
+    return PineEngine.verify_code(code)
+
 @app.post("/api/pine/execute")
 async def execute_pine_script(
     pair: str = Body("B-BTC_USDT"),

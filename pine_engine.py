@@ -166,6 +166,173 @@ class PineEngine:
         return (macd_line, signal_line, hist)
 
     @classmethod
+    def verify_code(cls, script_code: str) -> Dict[str, Any]:
+        """
+        Statically verifies Pine Script code for syntax, balanced brackets/parentheses,
+        known functions, and proper block indentation. Returns diagnostic info and fix hints.
+        """
+        if not script_code or not script_code.strip():
+            return {
+                "valid": False,
+                "error": "Pine Script code is empty.",
+                "line": 1,
+                "line_text": "",
+                "hint": "Please write or select a Pine Script template to compile.",
+                "suggestion": ""
+            }
+
+        lines = script_code.split("\n")
+
+        # Allowed ta.* functions
+        KNOWN_TA_FUNCS = {
+            "ta.ema": ("ta.ema(source, length)", 2),
+            "ta.sma": ("ta.sma(source, length)", 2),
+            "ta.rsi": ("ta.rsi(source, length)", 2),
+            "ta.bb": ("ta.bb(source, length, mult)", 3),
+            "ta.supertrend": ("ta.supertrend(length, factor)", 2),
+            "ta.macd": ("ta.macd(source, fast, slow, signal)", 4),
+            "ta.atr": ("ta.atr(length)", 1),
+            "ta.highest": ("ta.highest(source, length)", 2),
+            "ta.lowest": ("ta.lowest(source, length)", 2),
+            "ta.crossover": ("ta.crossover(series1, series2)", 2),
+            "ta.crossunder": ("ta.crossunder(series1, series2)", 2)
+        }
+
+        expect_indent = False
+        last_if_line = 0
+
+        for idx, raw_line in enumerate(lines, 1):
+            line = raw_line.strip()
+            if not line or line.startswith("//") or line.startswith("#"):
+                continue
+
+            # Check if block expectation
+            if expect_indent:
+                if not raw_line.startswith("    ") and not raw_line.startswith("\t"):
+                    return {
+                        "valid": False,
+                        "error": f"Missing indented block under 'if' condition on line {last_if_line}.",
+                        "line": idx,
+                        "line_text": raw_line,
+                        "hint": "In Pine Script, statements inside an 'if' block must be indented by 4 spaces.",
+                        "suggestion": f"    {line}"
+                    }
+                expect_indent = False
+
+            if line.startswith("if ") or line.startswith("if("):
+                expect_indent = True
+                last_if_line = idx
+
+            # 1. Check balanced parentheses ()
+            open_p = line.count("(")
+            close_p = line.count(")")
+            if open_p > close_p:
+                missing = open_p - close_p
+                return {
+                    "valid": False,
+                    "error": f"Missing {missing} closing parenthesis ')' on line {idx}.",
+                    "line": idx,
+                    "line_text": raw_line,
+                    "hint": f"Add {missing} closing parenthesis ')' at the end of the line or expression.",
+                    "suggestion": raw_line + (")" * missing)
+                }
+            elif close_p > open_p:
+                return {
+                    "valid": False,
+                    "error": f"Unexpected extra closing parenthesis ')' on line {idx}.",
+                    "line": idx,
+                    "line_text": raw_line,
+                    "hint": "Remove the extra ')' on this line.",
+                    "suggestion": ""
+                }
+
+            # 2. Check balanced brackets []
+            open_b = line.count("[")
+            close_b = line.count("]")
+            if open_b > close_b:
+                missing = open_b - close_b
+                return {
+                    "valid": False,
+                    "error": f"Missing closing bracket ']' on line {idx}.",
+                    "line": idx,
+                    "line_text": raw_line,
+                    "hint": "Add closing bracket ']' to close variable unpacking or series indexing (e.g. close[1]).",
+                    "suggestion": raw_line + ("]" * missing)
+                }
+            elif close_b > open_b:
+                return {
+                    "valid": False,
+                    "error": f"Unexpected extra closing bracket ']' on line {idx}.",
+                    "line": idx,
+                    "line_text": raw_line,
+                    "hint": "Remove the unmatched ']' on this line.",
+                    "suggestion": ""
+                }
+
+            # 3. Check quote closure
+            double_q = line.count('"')
+            single_q = line.count("'")
+            if double_q % 2 != 0:
+                return {
+                    "valid": False,
+                    "error": f"Unterminated double quote string literal on line {idx}.",
+                    "line": idx,
+                    "line_text": raw_line,
+                    "hint": 'Ensure all string quotes are closed with a matching quotation mark (e.g. "Long").',
+                    "suggestion": raw_line + '"'
+                }
+            if single_q % 2 != 0:
+                return {
+                    "valid": False,
+                    "error": f"Unterminated single quote string literal on line {idx}.",
+                    "line": idx,
+                    "line_text": raw_line,
+                    "hint": "Ensure all single quotes are closed with a matching ' mark.",
+                    "suggestion": raw_line + "'"
+                }
+
+            # 4. Check for invalid assignment comparison
+            if re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*\s*==\s*ta\.', line):
+                return {
+                    "valid": False,
+                    "error": f"Comparison operator '==' used instead of assignment '=' on line {idx}.",
+                    "line": idx,
+                    "line_text": raw_line,
+                    "hint": "Use '=' to assign a variable in Pine Script (e.g. 'ema9 = ta.ema(...)').",
+                    "suggestion": raw_line.replace("==", "=", 1)
+                }
+
+            # 5. Check unknown ta.* calls
+            ta_calls = re.findall(r'(ta\.[a-zA-Z0-9_]+)', line)
+            for call in ta_calls:
+                if call not in KNOWN_TA_FUNCS:
+                    closest = [k for k in KNOWN_TA_FUNCS if call.replace("ta.", "") in k or k.replace("ta.", "") in call]
+                    sugg_name = closest[0] if closest else "ta.ema"
+                    return {
+                        "valid": False,
+                        "error": f"Unknown function '{call}' on line {idx}.",
+                        "line": idx,
+                        "line_text": raw_line,
+                        "hint": f"Pine Script v5 does not recognize '{call}'. Did you mean '{sugg_name}'?",
+                        "suggestion": raw_line.replace(call, sugg_name)
+                    }
+
+            # 6. Check strategy.entry arguments
+            if "strategy.entry" in line:
+                m = re.search(r'strategy\.entry\((.*)\)', line)
+                if not m or not m.group(1).strip():
+                    return {
+                        "valid": False,
+                        "error": f"Missing arguments in strategy.entry() on line {idx}.",
+                        "line": idx,
+                        "line_text": raw_line,
+                        "hint": 'strategy.entry requires an ID and direction: strategy.entry("Long", strategy.long)',
+                        "suggestion": '    strategy.entry("Long", strategy.long)'
+                    }
+
+        return {"valid": True, "error": None}
+
+    @classmethod
     def execute_script(cls, script_code: str, candles: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         Parses and executes a Pine Script program against historical candles.
@@ -177,6 +344,20 @@ class PineEngine:
 
         import textwrap
         script_code = textwrap.dedent(script_code)
+
+        # Pre-verify code syntax before executing
+        validation = cls.verify_code(script_code)
+        if not validation.get("valid", True):
+            return {
+                "error": validation["error"],
+                "line": validation.get("line", 1),
+                "line_text": validation.get("line_text", ""),
+                "hint": validation.get("hint", ""),
+                "suggestion": validation.get("suggestion", ""),
+                "plots": [],
+                "signals": [],
+                "metrics": {}
+            }
 
         n = len(candles)
         times = [c["time"] for c in candles]

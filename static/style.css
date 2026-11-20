@@ -775,6 +775,10 @@ body {
     z-index: 30;
 }
 
+.bottom-dock.hidden {
+    display: none !important;
+}
+
 .bottom-dock.collapsed {
     height: 38px;
 }
@@ -902,6 +906,131 @@ body {
     border: none;
     resize: none;
     outline: none;
+}
+
+/* Pine Diagnostic Error & Fix Banner */
+.pine-diagnostic-banner {
+    background: rgba(28, 10, 16, 0.95);
+    border: 1px solid rgba(255, 23, 68, 0.45);
+    border-left: 4px solid var(--accent-ruby);
+    box-shadow: 0 4px 18px rgba(255, 23, 68, 0.15);
+    padding: 10px 14px;
+    margin: 8px;
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    animation: fadeIn 0.2s ease;
+}
+
+.pine-diagnostic-banner.hidden {
+    display: none !important;
+}
+
+.diag-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.diag-badge-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.diag-icon {
+    font-size: 14px;
+}
+
+.diag-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--accent-ruby);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.diag-line-pill {
+    background: rgba(255, 23, 68, 0.2);
+    border: 1px solid rgba(255, 23, 68, 0.4);
+    color: #ff8a9e;
+    font-size: 11px;
+    font-weight: 700;
+    font-family: var(--font-mono);
+    padding: 1px 6px;
+    border-radius: 4px;
+}
+
+.diag-close-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 14px;
+    cursor: pointer;
+    transition: color 0.2s;
+}
+
+.diag-close-btn:hover {
+    color: var(--text-primary);
+}
+
+.diag-body {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.diag-line-box {
+    background: rgba(0, 0, 0, 0.4);
+    border-left: 2px solid rgba(255, 255, 255, 0.2);
+    padding: 4px 8px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: #ffcdd2;
+    border-radius: 2px;
+    overflow-x: auto;
+}
+
+.diag-msg {
+    font-size: 12px;
+    color: #ffebee;
+    font-weight: 500;
+}
+
+.diag-hint {
+    font-size: 11px;
+    color: #ffb74d;
+    background: rgba(255, 179, 0, 0.1);
+    border-radius: 4px;
+    padding: 4px 8px;
+}
+
+.diag-hint b {
+    color: #ffe082;
+}
+
+.diag-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.btn-autofix {
+    background: linear-gradient(135deg, #00e676, #00b359);
+    border: none;
+    color: #000;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 5px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    box-shadow: 0 0 10px rgba(0, 230, 118, 0.3);
+    transition: all 0.2s ease;
+}
+
+.btn-autofix:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 0 14px rgba(0, 230, 118, 0.5);
 }
 
 .pine-backtest-col {

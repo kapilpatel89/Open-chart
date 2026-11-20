@@ -68,7 +68,10 @@
             </div>
 
             <div class="topbar-right">
-                <button id="btn-toggle-pine" class="btn-secondary">
+                <button id="btn-fullscreen" class="btn-secondary" title="Toggle Fullscreen Mode (F11)">
+                    <span>⛶ Fullscreen</span>
+                </button>
+                <button id="btn-toggle-pine" class="btn-secondary" title="Open Pine Script v5 IDE">
                     <span>⚡ Pine Script v5 IDE</span>
                 </button>
                 <button id="btn-toggle-order" class="btn-secondary">
@@ -263,8 +266,8 @@
             </aside>
         </main>
 
-        <!-- BOTTOM DOCK: PINE SCRIPT IDE, POSITIONS & ORDERS -->
-        <section class="bottom-dock" id="bottom-dock">
+        <!-- BOTTOM DOCK: PINE SCRIPT IDE, POSITIONS & ORDERS (Hidden by default, pops open from top button) -->
+        <section class="bottom-dock hidden" id="bottom-dock">
             <div class="dock-header">
                 <div class="dock-tabs">
                     <button class="dock-tab-btn active" data-dock="dock-pine">⚡ Pine Script v5 IDE & Strategy Tester</button>
@@ -273,7 +276,8 @@
                     <button class="dock-tab-btn" data-dock="dock-history">Trade History</button>
                 </div>
                 <div class="dock-actions">
-                    <button id="btn-dock-collapse" class="icon-btn" title="Expand / Collapse Dock">▼</button>
+                    <button id="btn-dock-collapse" class="icon-btn" title="Expand / Minimize Dock">▼</button>
+                    <button id="btn-dock-close" class="icon-btn" title="Close Panel (Esc)">✕</button>
                 </div>
             </div>
 
@@ -284,6 +288,7 @@
                     <div class="pine-editor-col">
                         <div class="pine-toolbar">
                             <div class="template-selector">
+                                <button id="btn-add-script" class="btn-secondary" title="Create a new script from scratch">＋ Add Script</button>
                                 <span>Template:</span>
                                 <select id="pine-template-select">
                                     <option value="ema_ribbon">EMA Ribbon 9/21/50 Scalper</option>
@@ -297,9 +302,31 @@
                                     <input type="checkbox" id="check-auto-trade">
                                     <span>⚡ Auto-Execute Orders on Signals</span>
                                 </label>
-                                <button id="btn-run-pine" class="btn-primary">▶ Compile & Run on Chart</button>
+                                <button id="btn-verify-pine" class="btn-secondary" title="Verify code syntax and check for errors">🔍 Verify Code</button>
+                                <button id="btn-run-pine" class="btn-primary" title="Verify & Compile Script onto 3D Chart">▶ Compile & Run on Chart</button>
                             </div>
                         </div>
+
+                        <!-- Diagnostic Error & Fix Banner -->
+                        <div id="pine-error-banner" class="pine-diagnostic-banner hidden">
+                            <div class="diag-header">
+                                <div class="diag-badge-title">
+                                    <span class="diag-icon">🛑</span>
+                                    <span class="diag-title" id="diag-error-title">Syntax Error Detected</span>
+                                    <span class="diag-line-pill" id="diag-line-pill">Line 1</span>
+                                </div>
+                                <button id="btn-close-diag" class="diag-close-btn" title="Dismiss Error">✕</button>
+                            </div>
+                            <div class="diag-body">
+                                <div class="diag-line-box" id="diag-line-info">code snippet</div>
+                                <div class="diag-msg" id="diag-error-msg">Error details</div>
+                                <div class="diag-hint" id="diag-error-hint">💡 <b>How to fix:</b> Hint text</div>
+                            </div>
+                            <div class="diag-actions" id="diag-actions-box">
+                                <button id="btn-autofix-diag" class="btn-autofix">⚡ Auto-Fix Script Code</button>
+                            </div>
+                        </div>
+
                         <textarea id="pine-code-editor" class="code-editor" spellcheck="false"></textarea>
                     </div>
 

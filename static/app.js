@@ -183,7 +183,10 @@ class OpenChartApp {
                 document.querySelectorAll('.dock-content').forEach(c => c.classList.remove('active'));
                 btn.classList.add('active');
                 document.getElementById(btn.dataset.dock).classList.add('active');
-                document.getElementById('bottom-dock').classList.remove('collapsed');
+                const dock = document.getElementById('bottom-dock');
+                dock.classList.remove('hidden');
+                dock.classList.remove('collapsed');
+                setTimeout(() => this.chart.resize(), 320);
             });
         });
 
@@ -193,6 +196,16 @@ class OpenChartApp {
             dock.classList.toggle('collapsed');
             setTimeout(() => this.chart.resize(), 320);
         });
+
+        // Dock Close / Hide Button
+        const dockCloseBtn = document.getElementById('btn-dock-close');
+        if (dockCloseBtn) {
+            dockCloseBtn.addEventListener('click', () => {
+                const dock = document.getElementById('bottom-dock');
+                dock.classList.add('hidden');
+                setTimeout(() => this.chart.resize(), 100);
+            });
+        }
 
         // Order Type Toggle (Market vs Limit)
         document.getElementById('btn-order-type-market').addEventListener('click', () => {
@@ -289,11 +302,44 @@ class OpenChartApp {
         // REA Agent Execution Button
         document.getElementById('btn-run-rea').addEventListener('click', () => this.handleRunReaAgent());
 
+        // Fullscreen Toggle Feature
+        const toggleFullscreen = () => {
+            const fsBtn = document.getElementById('btn-fullscreen');
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(err => console.warn(err));
+                if (fsBtn) fsBtn.innerHTML = '<span>🗗 Exit Fullscreen</span>';
+            } else {
+                if (document.exitFullscreen) document.exitFullscreen();
+                if (fsBtn) fsBtn.innerHTML = '<span>⛶ Fullscreen</span>';
+            }
+        };
+
+        const fsBtn = document.getElementById('btn-fullscreen');
+        if (fsBtn) {
+            fsBtn.addEventListener('click', toggleFullscreen);
+        }
+
+        document.addEventListener('fullscreenchange', () => {
+            const btn = document.getElementById('btn-fullscreen');
+            if (btn) {
+                btn.innerHTML = document.fullscreenElement ? '<span>🗗 Exit Fullscreen</span>' : '<span>⛶ Fullscreen</span>';
+            }
+            setTimeout(() => this.chart.resize(), 150);
+        });
+
         // Header Quick Toggles
         document.getElementById('btn-toggle-pine').addEventListener('click', () => {
             const dock = document.getElementById('bottom-dock');
-            dock.classList.remove('collapsed');
-            document.querySelector('[data-dock="dock-pine"]').click();
+            if (dock.classList.contains('hidden')) {
+                dock.classList.remove('hidden');
+                dock.classList.remove('collapsed');
+                document.querySelector('[data-dock="dock-pine"]').click();
+                const codeEditor = document.getElementById('pine-code-editor');
+                if (codeEditor) codeEditor.focus();
+            } else {
+                dock.classList.add('hidden');
+            }
+            setTimeout(() => this.chart.resize(), 150);
         });
 
         document.getElementById('btn-toggle-order').addEventListener('click', () => {

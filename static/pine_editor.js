@@ -77,6 +77,7 @@ class PineScriptIDE {
         this.chart = chartInstance;
         this.autoTradeEnabled = false;
         this.currentResults = null;
+        this.currentDiagnostic = null;
 
         this.init();
     }
@@ -85,19 +86,242 @@ class PineScriptIDE {
         if (!this.editorEl) return;
         // Default to EMA ribbon
         this.editorEl.value = PINE_TEMPLATES.ema_ribbon;
+
+        // Bind Error Banner Buttons
+        const closeDiagBtn = document.getElementById('btn-close-diag');
+        if (closeDiagBtn) {
+            closeDiagBtn.addEventListener('click', () => this.hideDiagnostic());
+        }
+
+        const autoFixBtn = document.getElementById('btn-autofix-diag');
+        if (autoFixBtn) {
+            autoFixBtn.addEventListener('click', () => this.applyAutoFix());
+        }
+
+        const addScriptBtn = document.getElementById('btn-add-script');
+        if (addScriptBtn) {
+            addScriptBtn.addEventListener('click', () => this.addNewScript());
+        }
+
+        const verifyBtn = document.getElementById('btn-verify-pine');
+        if (verifyBtn) {
+            verifyBtn.addEventListener('click', () => this.verifyScriptUI());
+        }
+    }
+
+    addNewScript() {
+        const boilerplate = `//@version=5
+strategy("My Custom Strategy", overlay=true)
+
+// 1. Calculate Indicators
+fastEMA = ta.ema(close, 14)
+slowEMA = ta.ema(close, 28)
+rsi = ta.rsi(close, 14)
+
+// 2. Plot on Chart
+plot(fastEMA, "Fast EMA", color=#00f0ff, linewidth=2)
+plot(slowEMA, "Slow EMA", color=#ffaa00, linewidth=2)
+
+// 3. Strategy Entry & Exit Logic
+longCondition = ta.crossover(fastEMA, slowEMA) and rsi < 70
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+
+shortCondition = ta.crossunder(fastEMA, slowEMA) and rsi > 30
+if (shortCondition)
+    strategy.entry("Short", strategy.short)
+`;
+        this.editorEl.value = boilerplate;
+        this.hideDiagnostic();
+        this.editorEl.focus();
+        this.editorEl.setSelectionRange(0, 0);
     }
 
     loadTemplate(templateKey) {
         if (PINE_TEMPLATES[templateKey]) {
             this.editorEl.value = PINE_TEMPLATES[templateKey];
+            this.hideDiagnostic();
             this.executeScript();
         }
+    }
+
+    async verifyScript(code) {
+        // Fast client-side pre-checks
+        const lines = code.split('\n');
+        for (let i = 0; i < lines.length; i++) {
+            const raw = lines[i];
+            const line = raw.trim();
+            if (!line || line.startsWith('//') || line.startsWith('#')) continue;
+
+            // Unbalanced parentheses
+            const openP = (line.match(/\(/g) || []).length;
+            const closeP = (line.match(/\)/g) || []).length;
+            if (openP > closeP) {
+                const missing = openP - closeP;
+                return {
+                    valid: false,
+                    error: `Missing ${missing} closing parenthesis ')' on line ${i + 1}`,
+                    line: i + 1,
+                    line_text: raw,
+                    hint: `Add ${missing} closing parenthesis ')' to complete the function call or condition.`,
+                    suggestion: raw + ')'.repeat(missing)
+                };
+            }
+
+            // Unbalanced brackets
+            const openB = (line.match(/\[/g) || []).length;
+            const closeB = (line.match(/\]/g) || []).length;
+            if (openB > closeB) {
+                const missing = openB - closeB;
+                return {
+                    valid: false,
+                    error: `Missing ${missing} closing bracket ']' on line ${i + 1}`,
+                    line: i + 1,
+                    line_text: raw,
+                    hint: `Close brackets ']' for series indexing (e.g. close[1]) or multi-variable unpacking.`,
+                    suggestion: raw + ']'.repeat(missing)
+                };
+            }
+
+            // Unterminated quotes
+            const doubleQuotes = (line.match(/"/g) || []).length;
+            if (doubleQuotes % 2 !== 0) {
+                return {
+                    valid: false,
+                    error: `Unterminated string quote on line ${i + 1}`,
+                    line: i + 1,
+                    line_text: raw,
+                    hint: `Ensure all text strings are enclosed with matching quotation marks (e.g. "Long").`,
+                    suggestion: raw + '"'
+                };
+            }
+
+            // Unknown technical indicator call check
+            const taCalls = line.match(/ta\.[a-zA-Z0-9_]+/g);
+            if (taCalls) {
+                const known = ['ta.ema', 'ta.sma', 'ta.rsi', 'ta.bb', 'ta.supertrend', 'ta.macd', 'ta.atr', 'ta.highest', 'ta.lowest', 'ta.crossover', 'ta.crossunder'];
+                for (let call of taCalls) {
+                    if (!known.includes(call)) {
+                        return {
+                            valid: false,
+                            error: `Unknown indicator function '${call}' on line ${i + 1}`,
+                            line: i + 1,
+                            line_text: raw,
+                            hint: `Pine Script v5 provides ta.ema, ta.sma, ta.rsi, ta.bb, ta.supertrend, ta.macd, ta.atr, ta.highest, ta.lowest, ta.crossover, ta.crossunder.`,
+                            suggestion: raw.replace(call, 'ta.ema')
+                        };
+                    }
+                }
+            }
+        }
+
+        // Backend deep verification
+        try {
+            const resp = await fetch('/api/pine/verify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ code: code })
+            });
+            const data = await resp.json();
+            return data;
+        } catch (e) {
+            return { valid: true };
+        }
+    }
+
+    async verifyScriptUI() {
+        const code = this.editorEl.value;
+        const diag = await this.verifyScript(code);
+        if (!diag.valid) {
+            this.showDiagnostic(diag);
+        } else {
+            this.hideDiagnostic();
+            this.showSuccessToast("✓ Script Code Verified: No Syntax Errors Found!");
+        }
+    }
+
+    showDiagnostic(diag) {
+        this.currentDiagnostic = diag;
+        const banner = document.getElementById('pine-error-banner');
+        if (!banner) return;
+
+        document.getElementById('diag-error-title').textContent = "Syntax / Verification Error";
+        document.getElementById('diag-line-pill').textContent = `Line ${diag.line || 1}`;
+        document.getElementById('diag-line-info').textContent = diag.line_text ? `Line ${diag.line}: ${diag.line_text}` : `Line ${diag.line}`;
+        document.getElementById('diag-error-msg').textContent = diag.error || "Syntax error detected in script.";
+        document.getElementById('diag-error-hint').innerHTML = `💡 <b>How to fix:</b> ${diag.hint || 'Check parameter types and syntax balance.'}`;
+
+        const autofixBtn = document.getElementById('btn-autofix-diag');
+        if (autofixBtn) {
+            autofixBtn.style.display = diag.suggestion ? 'inline-block' : 'none';
+        }
+
+        banner.classList.remove('hidden');
+
+        // Scroll and highlight in textarea
+        this.highlightErrorLine(diag.line);
+    }
+
+    hideDiagnostic() {
+        this.currentDiagnostic = null;
+        const banner = document.getElementById('pine-error-banner');
+        if (banner) banner.classList.add('hidden');
+    }
+
+    applyAutoFix() {
+        if (!this.currentDiagnostic || !this.currentDiagnostic.suggestion) return;
+        const lineNum = this.currentDiagnostic.line;
+        const lines = this.editorEl.value.split('\n');
+        if (lineNum >= 1 && lineNum <= lines.length) {
+            lines[lineNum - 1] = this.currentDiagnostic.suggestion;
+            this.editorEl.value = lines.join('\n');
+            this.hideDiagnostic();
+            this.showSuccessToast("⚡ Auto-Fix Applied successfully! Re-verifying...");
+            setTimeout(() => this.verifyScriptUI(), 300);
+        }
+    }
+
+    highlightErrorLine(lineNum) {
+        if (!lineNum) return;
+        const lines = this.editorEl.value.split('\n');
+        let startChar = 0;
+        for (let i = 0; i < lineNum - 1 && i < lines.length; i++) {
+            startChar += lines[i].length + 1;
+        }
+        const endChar = startChar + (lines[lineNum - 1] ? lines[lineNum - 1].length : 0);
+        this.editorEl.focus();
+        this.editorEl.setSelectionRange(startChar, endChar);
+    }
+
+    showSuccessToast(msg) {
+        const banner = document.getElementById('pine-error-banner');
+        if (!banner) return;
+        document.getElementById('diag-error-title').textContent = "Script Verified";
+        document.getElementById('diag-error-title').style.color = "#00e676";
+        document.getElementById('diag-line-pill').textContent = "Clean";
+        document.getElementById('diag-line-pill').style.borderColor = "rgba(0, 230, 118, 0.4)";
+        document.getElementById('diag-line-pill').style.color = "#00e676";
+        document.getElementById('diag-line-info').textContent = "All Pine Script v5 logic validated successfully.";
+        document.getElementById('diag-error-msg').textContent = msg;
+        document.getElementById('diag-error-hint').innerHTML = `💡 <b>Ready:</b> Click "▶ Compile & Run on Chart" to execute strategy.`;
+        document.getElementById('btn-autofix-diag').style.display = 'none';
+        banner.classList.remove('hidden');
+        setTimeout(() => this.hideDiagnostic(), 3500);
     }
 
     async executeScript(pair, interval) {
         const code = this.editorEl.value;
         const currentPair = pair || window.currentPair || 'B-BTC_USDT';
         const currentInterval = interval || window.currentInterval || '1h';
+
+        // 1. Verify before executing!
+        const diag = await this.verifyScript(code);
+        if (diag && !diag.valid) {
+            this.showDiagnostic(diag);
+            console.warn("[Pine IDE] Execution prevented due to verification error:", diag.error);
+            return;
+        }
+        this.hideDiagnostic();
 
         try {
             const resp = await fetch('/api/pine/execute', {
@@ -113,6 +337,14 @@ class PineScriptIDE {
             const data = await resp.json();
             if (data.error) {
                 console.error("Pine compilation error:", data.error);
+                this.showDiagnostic({
+                    valid: false,
+                    error: data.error,
+                    line: data.line || 1,
+                    line_text: data.line_text || "",
+                    hint: data.hint || "Review Pine Script syntax rules and function arguments.",
+                    suggestion: data.suggestion || ""
+                });
                 return;
             }
 
@@ -137,6 +369,14 @@ class PineScriptIDE {
 
         } catch (err) {
             console.error("Error running Pine Script:", err);
+            this.showDiagnostic({
+                valid: false,
+                error: `Network or execution error: ${err.message}`,
+                line: 1,
+                line_text: "",
+                hint: "Check server connection and script format.",
+                suggestion: ""
+            });
         }
     }
 
