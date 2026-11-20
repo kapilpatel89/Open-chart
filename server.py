@@ -82,9 +82,12 @@ async def on_feed_tick(msg: Dict[str, Any]):
 
 @app.get("/")
 async def root():
-    index_path = os.path.join(STATIC_DIR, "index.html")
-    if os.path.exists(index_path):
-        return FileResponse(index_path)
+    root_index = os.path.join(BASE_DIR, "index.html")
+    if os.path.exists(root_index):
+        return FileResponse(root_index)
+    static_index = os.path.join(STATIC_DIR, "index.html")
+    if os.path.exists(static_index):
+        return FileResponse(static_index)
     return {"message": "Open Chart Trading Server is running."}
 
 @app.get("/api/markets")

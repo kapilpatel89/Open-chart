@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Open Chart - 3D Candlestick Trading Terminal (Alternative to TradingView)</title>
+    <link rel="stylesheet" href="static/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <!-- TOP NAVIGATION BAR -->
+        <header class="topbar">
+            <div class="topbar-left">
+                <div class="logo">
+                    <span class="logo-icon">◈</span>
+                    <span class="logo-text">OPEN <span class="logo-accent">CHART</span></span>
+                    <span class="badge-3d">3D VOLUMETRIC</span>
+                </div>
+
+                <!-- Coin Search & Selector -->
+                <div class="market-search-box">
+                    <span class="market-icon">⚡</span>
+                    <input type="text" id="market-search-input" placeholder="Search 600+ Coins (e.g. BTC, ETH, SOL)..." autocomplete="off">
+                    <select id="coin-select" class="market-dropdown">
+                        <option value="B-BTC_USDT">BTC/USDT</option>
+                    </select>
+                </div>
+
+                <!-- Live Ticker Info -->
+                <div class="live-ticker-info">
+                    <span id="ticker-price" class="ticker-price">--</span>
+                    <span id="ticker-change" class="ticker-change">--%</span>
+                    <div class="ticker-stats">
+                        <span>24h H: <b id="ticker-high">--</b></span>
+                        <span>24h L: <b id="ticker-low">--</b></span>
+                        <span>Vol: <b id="ticker-vol">--</b></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Timeframe Pills -->
+            <div class="timeframe-container">
+                <button class="tf-btn" data-tf="1m">1m</button>
+                <button class="tf-btn" data-tf="5m">5m</button>
+                <button class="tf-btn" data-tf="15m">15m</button>
+                <button class="tf-btn active" data-tf="1h">1H</button>
+                <button class="tf-btn" data-tf="4h">4H</button>
+                <button class="tf-btn" data-tf="1d">1D</button>
+            </div>
+
+            <!-- Indicators Dropdown -->
+            <div class="dropdown-container">
+                <button id="btn-indicators-menu" class="btn-secondary">
+                    <span>📊 Indicators ▾</span>
+                </button>
+                <div id="indicators-dropdown" class="dropdown-menu">
+                    <label class="dropdown-item"><input type="checkbox" id="ind-ema9" checked> EMA 9 (Cyan)</label>
+                    <label class="dropdown-item"><input type="checkbox" id="ind-ema21" checked> EMA 21 (Orange)</label>
+                    <label class="dropdown-item"><input type="checkbox" id="ind-ema50"> EMA 50 (Purple)</label>
+                    <label class="dropdown-item"><input type="checkbox" id="ind-ema200"> EMA 200 (Gold)</label>
+                    <label class="dropdown-item"><input type="checkbox" id="ind-bb"> Bollinger Bands (20, 2)</label>
+                    <label class="dropdown-item"><input type="checkbox" id="ind-supertrend"> Supertrend (10, 3)</label>
+                    <label class="dropdown-item"><input type="checkbox" id="ind-rsi"> RSI Sub-Pane (14)</label>
+                </div>
+            </div>
+
+            <div class="topbar-right">
+                <button id="btn-fullscreen" class="btn-secondary" title="Toggle Fullscreen Mode (F11)">
+                    <span>⛶ Fullscreen</span>
+                </button>
+                <button id="btn-toggle-pine" class="btn-secondary" title="Open Pine Script v5 IDE">
+                    <span>⚡ Pine Script v5 IDE</span>
+                </button>
+                <button id="btn-toggle-order" class="btn-secondary">
+                    <span>📝 Trade Panel</span>
+                </button>
+                <button id="btn-toggle-rea" class="btn-secondary rea-btn">
+                    <span>🔍 REA Agent</span>
+                </button>
+                
+                <!-- Account Balance Pill -->
+                <div class="account-pill">
+                    <span class="account-label">EQUITY:</span>
+                    <span id="account-equity" class="account-val">$10,000.00</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- MAIN WORKSPACE -->
+        <main class="main-workspace">
+            <!-- Left Drawing Tools Toolbar (TradingView Style) -->
+            <aside class="drawing-toolbar">
+                <button class="tool-btn active" data-tool="cursor" title="Crosshair Cursor (Q / Esc)">✛</button>
+                <div class="tool-divider"></div>
+                <!-- Line & Ray Tools -->
+                <button class="tool-btn" data-tool="trendline" title="Trend Line (T)">╱</button>
+                <button class="tool-btn" data-tool="ray" title="Ray Line">↗</button>
+                <button class="tool-btn" data-tool="extended" title="Extended Line">⟷</button>
+                <button class="tool-btn" data-tool="horizontal" title="Horizontal Line (H)">―</button>
+                <button class="tool-btn" data-tool="horizontal_ray" title="Horizontal Ray">⟶</button>
+                <button class="tool-btn" data-tool="vertical" title="Vertical Line (V)">│</button>
+                <button class="tool-btn" data-tool="channel" title="Parallel Channel">⫽</button>
+                <div class="tool-divider"></div>
+                <!-- Fib & Geometric Shapes -->
+                <button class="tool-btn" data-tool="fibonacci" title="Fibonacci Retracement (F)">≡</button>
+                <button class="tool-btn" data-tool="rectangle" title="Rectangle / Order Block (R)">▭</button>
+                <button class="tool-btn" data-tool="circle" title="Circle Marker">◯</button>
+                <button class="tool-btn" data-tool="brush" title="Freehand Brush (B)">✎</button>
+                <button class="tool-btn" data-tool="arrow" title="Arrow Marker">➜</button>
+                <div class="tool-divider"></div>
+                <!-- Text, Labels & Positions -->
+                <button class="tool-btn" data-tool="text" title="Text Annotation">T</button>
+                <button class="tool-btn" data-tool="price_label" title="Price Label">🏷</button>
+                <button class="tool-btn" data-tool="long_position" title="Long Risk/Reward Position">▲</button>
+                <button class="tool-btn" data-tool="short_position" title="Short Risk/Reward Position">▼</button>
+                <button class="tool-btn" data-tool="measure" title="Measure Distance & Price">📏</button>
+                <div class="tool-divider"></div>
+                <!-- Clear -->
+                <button class="tool-btn" id="btn-clear-drawings" title="Clear All Drawings (Del)">🗑</button>
+            </aside>
+
+            <!-- Center Chart Area -->
+            <div class="chart-wrapper">
+                <canvas id="chart-canvas"></canvas>
+
+                <!-- Floating Chart Overlay HUD Buttons -->
+                <div class="chart-floating-controls">
+                    <button id="btn-reset-view" title="Reset View & Auto Scale">⟲ Auto</button>
+                    <button id="btn-zoom-in" title="Zoom In">+</button>
+                    <button id="btn-zoom-out" title="Zoom Out">−</button>
+                    <div class="chart-hint-badge">
+                        💡 <b>Interactive:</b> Right-click to Place Limit Order • Drag <b>[TP]</b> & <b>[SL]</b> handles to update!
+                    </div>
+                </div>
+
+                <!-- Custom Right-Click Context Menu -->
+                <div id="chart-context-menu" class="context-menu">
+                    <div class="context-item" id="ctx-limit-buy">🟢 Buy Limit @ $<span class="ctx-price">0.00</span></div>
+                    <div class="context-item" id="ctx-limit-sell">🔴 Sell Limit @ $<span class="ctx-price">0.00</span></div>
+                    <div class="context-divider"></div>
+                    <div class="context-item" id="ctx-set-tp">🎯 Set Take Profit Here</div>
+                    <div class="context-item" id="ctx-set-sl">🛑 Set Stop Loss Here</div>
+                    <div class="context-divider"></div>
+                    <div class="context-item" id="ctx-reset-chart">⟲ Reset Chart Scale</div>
+                </div>
+            </div>
+
+            <!-- Right Trading & Orderbook Sidebar -->
+            <aside class="sidebar" id="sidebar">
+                <div class="sidebar-tabs">
+                    <button class="tab-btn active" data-tab="tab-trade">Order Entry</button>
+                    <button class="tab-btn" data-tab="tab-orderbook">Order Book</button>
+                    <button class="tab-btn" data-tab="tab-rea">REA Inspector</button>
+                </div>
+
+                <!-- TAB 1: ORDER ENTRY -->
+                <div id="tab-trade" class="tab-content active">
+                    <div class="order-form">
+                        <!-- Order Type: Market / Limit -->
+                        <div class="btn-group">
+                            <button id="btn-order-type-market" class="toggle-btn active">Market</button>
+                            <button id="btn-order-type-limit" class="toggle-btn">Limit</button>
+                        </div>
+
+                        <!-- Side: Buy (Long) / Sell (Short) -->
+                        <div class="btn-group side-group">
+                            <button id="btn-side-buy" class="side-btn buy active">BUY / LONG</button>
+                            <button id="btn-side-sell" class="side-btn sell">SELL / SHORT</button>
+                        </div>
+
+                        <!-- Limit Price Input -->
+                        <div class="form-group" id="limit-price-group" style="display: none;">
+                            <label>Limit Price (USDT)</label>
+                            <input type="number" id="order-price" step="0.01" placeholder="Current Price">
+                        </div>
+
+                        <!-- Amount Input -->
+                        <div class="form-group">
+                            <label>Amount (Contracts / Qty)</label>
+                            <input type="number" id="order-quantity" step="0.001" value="0.10">
+                            <div class="quick-percentages">
+                                <button class="pct-btn" data-pct="25">25%</button>
+                                <button class="pct-btn" data-pct="50">50%</button>
+                                <button class="pct-btn" data-pct="75">75%</button>
+                                <button class="pct-btn" data-pct="100">100%</button>
+                            </div>
+                        </div>
+
+                        <!-- Visual Draggable Take Profit (TP) -->
+                        <div class="form-group tpsl-group">
+                            <div class="tpsl-header">
+                                <label><input type="checkbox" id="check-tp" checked> Take Profit (TP)</label>
+                                <span id="tp-profit-preview" class="preview-val bullish">+$150.00 (+2.5%)</span>
+                            </div>
+                            <input type="number" id="order-tp" step="0.01" placeholder="TP Target Price">
+                        </div>
+
+                        <!-- Visual Draggable Stop Loss (SL) -->
+                        <div class="form-group tpsl-group">
+                            <div class="tpsl-header">
+                                <label><input type="checkbox" id="check-sl" checked> Stop Loss (SL)</label>
+                                <span id="sl-loss-preview" class="preview-val bearish">-$60.00 (-1.0%)</span>
+                            </div>
+                            <input type="number" id="order-sl" step="0.01" placeholder="SL Target Price">
+                        </div>
+
+                        <!-- Risk / Reward Metric -->
+                        <div class="rr-box">
+                            <span>Risk / Reward Ratio:</span>
+                            <b id="rr-ratio">2.50 : 1</b>
+                        </div>
+
+                        <!-- Place Order Button -->
+                        <button id="btn-submit-order" class="submit-order-btn buy">
+                            PLACE BUY ORDER ON CHART
+                        </button>
+                    </div>
+                </div>
+
+                <!-- TAB 2: ORDER BOOK & RECENT TRADES -->
+                <div id="tab-orderbook" class="tab-content">
+                    <div class="orderbook-container">
+                        <div class="ob-header">
+                            <span>Price (USDT)</span>
+                            <span>Size</span>
+                            <span>Total</span>
+                        </div>
+                        <div id="ob-asks" class="ob-ladder asks"></div>
+                        <div class="ob-spread">
+                            <span id="ob-mid-price">--</span>
+                            <span class="spread-tag">CoinDCX Live Depth</span>
+                        </div>
+                        <div id="ob-bids" class="ob-ladder bids"></div>
+                    </div>
+                </div>
+
+                <!-- TAB 3: REA AGENT REVERSE ENGINEERING -->
+                <div id="tab-rea" class="tab-content">
+                    <div class="rea-panel">
+                        <h3>🔍 REA Reverse Engineering Agent</h3>
+                        <p class="rea-desc">Integrated with <code>morluto/rea</code> MCP Server to inspect indicators, decompile algorithms, and audit trading models.</p>
+                        
+                        <div class="form-group">
+                            <label>Tool Selection</label>
+                            <select id="rea-tool-select">
+                                <option value="inspect_native_load_image">inspect_native_load_image (Binary Headers)</option>
+                                <option value="analyze_javascript_application">analyze_javascript_application (Frontend App/ASAR)</option>
+                                <option value="inspect_native_instruction">inspect_native_instruction (Disassembly)</option>
+                                <option value="resolve_native_call_targets">resolve_native_call_targets (Call Graph)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Target Argument / Path</label>
+                            <input type="text" id="rea-target-input" value="C:/Windows/notepad.exe">
+                        </div>
+                        <button id="btn-run-rea" class="btn-primary">Execute REA Agent</button>
+                        
+                        <div class="rea-output-box">
+                            <pre id="rea-output-text">// REA Agent MCP Output will appear here...</pre>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+        </main>
+
+        <!-- BOTTOM DOCK: PINE SCRIPT IDE, POSITIONS & ORDERS (Hidden by default, pops open from top button) -->
+        <section class="bottom-dock hidden" id="bottom-dock">
+            <div class="dock-header">
+                <div class="dock-tabs">
+                    <button class="dock-tab-btn active" data-dock="dock-pine">⚡ Pine Script v5 IDE & Strategy Tester</button>
+                    <button class="dock-tab-btn" data-dock="dock-positions">Positions <span id="badge-positions" class="tab-count">0</span></button>
+                    <button class="dock-tab-btn" data-dock="dock-orders">Open Orders <span id="badge-orders" class="tab-count">0</span></button>
+                    <button class="dock-tab-btn" data-dock="dock-history">Trade History</button>
+                </div>
+                <div class="dock-actions">
+                    <button id="btn-dock-collapse" class="icon-btn" title="Expand / Minimize Dock">▼</button>
+                    <button id="btn-dock-close" class="icon-btn" title="Close Panel (Esc)">✕</button>
+                </div>
+            </div>
+
+            <!-- DOCK 1: PINE SCRIPT IDE -->
+            <div id="dock-pine" class="dock-content active">
+                <div class="pine-ide-container">
+                    <!-- Left: Code Editor -->
+                    <div class="pine-editor-col">
+                        <div class="pine-toolbar">
+                            <div class="template-selector">
+                                <button id="btn-add-script" class="btn-secondary" title="Create a new script from scratch">＋ Add Script</button>
+                                <span>Template:</span>
+                                <select id="pine-template-select">
+                                    <option value="ema_ribbon">EMA Ribbon 9/21/50 Scalper</option>
+                                    <option value="supertrend">Supertrend (10, 3) + Momentum</option>
+                                    <option value="bollinger">Bollinger Bands Mean Reversion</option>
+                                    <option value="smc">Institutional SMC Orderflow</option>
+                                </select>
+                            </div>
+                            <div class="pine-actions">
+                                <label class="auto-trade-toggle" title="Automatically place real orders when Pine signals fire">
+                                    <input type="checkbox" id="check-auto-trade">
+                                    <span>⚡ Auto-Execute Orders on Signals</span>
+                                </label>
+                                <button id="btn-verify-pine" class="btn-secondary" title="Verify code syntax and check for errors">🔍 Verify Code</button>
+                                <button id="btn-run-pine" class="btn-primary" title="Verify & Compile Script onto 3D Chart">▶ Compile & Run on Chart</button>
+                            </div>
+                        </div>
+
+                        <!-- Diagnostic Error & Fix Banner -->
+                        <div id="pine-error-banner" class="pine-diagnostic-banner hidden">
+                            <div class="diag-header">
+                                <div class="diag-badge-title">
+                                    <span class="diag-icon">🛑</span>
+                                    <span class="diag-title" id="diag-error-title">Syntax Error Detected</span>
+                                    <span class="diag-line-pill" id="diag-line-pill">Line 1</span>
+                                </div>
+                                <button id="btn-close-diag" class="diag-close-btn" title="Dismiss Error">✕</button>
+                            </div>
+                            <div class="diag-body">
+                                <div class="diag-line-box" id="diag-line-info">code snippet</div>
+                                <div class="diag-msg" id="diag-error-msg">Error details</div>
+                                <div class="diag-hint" id="diag-error-hint">💡 <b>How to fix:</b> Hint text</div>
+                            </div>
+                            <div class="diag-actions" id="diag-actions-box">
+                                <button id="btn-autofix-diag" class="btn-autofix">⚡ Auto-Fix Script Code</button>
+                            </div>
+                        </div>
+
+                        <textarea id="pine-code-editor" class="code-editor" spellcheck="false"></textarea>
+                    </div>
+
+                    <!-- Right: Strategy Tester & Backtest Metrics -->
+                    <div class="pine-backtest-col">
+                        <h4>Strategy Performance Report</h4>
+                        <div class="metrics-grid">
+                            <div class="metric-card">
+                                <span class="metric-title">Net Profit</span>
+                                <b id="bt-net-profit" class="metric-val bullish">+$0.00 (0.0%)</b>
+                            </div>
+                            <div class="metric-card">
+                                <span class="metric-title">Win Rate</span>
+                                <b id="bt-win-rate" class="metric-val">0.0%</b>
+                            </div>
+                            <div class="metric-card">
+                                <span class="metric-title">Total Executed</span>
+                                <b id="bt-total-trades" class="metric-val">0 Trades</b>
+                            </div>
+                        </div>
+
+                        <h5>Simulated Execution Log</h5>
+                        <div id="bt-trades-list" class="trades-list">
+                            <div class="empty-trades">Run script to generate backtest trades...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- DOCK 2: POSITIONS -->
+            <div id="dock-positions" class="dock-content">
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Symbol</th>
+                                <th>Side</th>
+                                <th>Size</th>
+                                <th>Entry Price</th>
+                                <th>Current Price</th>
+                                <th>Take Profit (TP)</th>
+                                <th>Stop Loss (SL)</th>
+                                <th>Unrealized PnL</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="positions-tbody">
+                            <tr><td colspan="9" class="empty-table">No open positions. Place an order or run a Pine Script strategy.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- DOCK 3: OPEN ORDERS -->
+            <div id="dock-orders" class="dock-content">
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Symbol</th>
+                                <th>Type</th>
+                                <th>Side</th>
+                                <th>Quantity</th>
+                                <th>Limit Price</th>
+                                <th>Take Profit</th>
+                                <th>Stop Loss</th>
+                                <th>Status</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="orders-tbody">
+                            <tr><td colspan="10" class="empty-table">No pending open orders.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- DOCK 4: TRADE HISTORY -->
+            <div id="dock-history" class="dock-content">
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Symbol</th>
+                                <th>Side</th>
+                                <th>Quantity</th>
+                                <th>Entry Price</th>
+                                <th>Exit Price</th>
+                                <th>Realized PnL</th>
+                                <th>PnL %</th>
+                                <th>Reason</th>
+                                <th>Source</th>
+                            </tr>
+                        </thead>
+                        <tbody id="history-tbody">
+                            <tr><td colspan="9" class="empty-table">No closed trade history yet.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- Scripts -->
+    <script src="static/chart3d.js"></script>
+    <script src="static/pine_editor.js"></script>
+    <script src="static/app.js"></script>
+</body>
+</html>

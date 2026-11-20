@@ -366,17 +366,35 @@ class OpenChartApp {
         this.pineIDE.executeScript(this.currentPair, this.currentInterval);
     }
 
+    getCleanSymbol() {
+        return (this.currentPair || 'BTC_USDT').replace('B-', '').replace('_USDT', '').replace('USDT', '').toUpperCase();
+    }
+
     async loadMarkets() {
         try {
             const resp = await fetch('/api/markets');
-            const data = await resp.json();
-            if (Array.isArray(data) && data.length) {
-                this.markets = data;
-                this.populateCoinDropdown(data);
+            if (resp.ok) {
+                const data = await resp.json();
+                if (Array.isArray(data) && data.length) {
+                    this.markets = data;
+                    this.populateCoinDropdown(data);
+                    return;
+                }
             }
         } catch (e) {
-            console.error("Error loading CoinDCX markets:", e);
+            console.warn("Local markets API unavailable, using fallback list.");
         }
+
+        // Fallback default crypto markets for standalone & GitHub Pages
+        const defaultMarkets = [
+            { symbol: "BTC_USDT", name: "BTC / USDT", last_price: "62000.00", change_24h: 1.25, volume: 145000 },
+            { symbol: "ETH_USDT", name: "ETH / USDT", last_price: "2450.00", change_24h: -0.85, volume: 98000 },
+            { symbol: "SOL_USDT", name: "SOL / USDT", last_price: "155.00", change_24h: 3.40, volume: 76000 },
+            { symbol: "XRP_USDT", name: "XRP / USDT", last_price: "0.58", change_24h: 0.40, volume: 54000 },
+            { symbol: "DOGE_USDT", name: "DOGE / USDT", last_price: "0.14", change_24h: 5.10, volume: 42000 }
+        ];
+        this.markets = defaultMarkets;
+        this.populateCoinDropdown(defaultMarkets);
     }
 
     populateCoinDropdown(marketList) {
@@ -421,10 +439,45 @@ class OpenChartApp {
     async loadCandles(forceReset = true) {
         try {
             const cacheKey = `${this.currentPair}_${this.currentInterval}`;
-            const url = `/api/candles?pair=${encodeURIComponent(this.currentPair)}&interval=${this.currentInterval}&limit=160`;
-            const resp = await fetch(url);
-            const candles = await resp.json();
-            if (Array.isArray(candles) && candles.length) {
+            let candles = null;
+
+            // 1. Try local backend first
+            try {
+                const url = `/api/candles?pair=${encodeURIComponent(this.currentPair)}&interval=${this.currentInterval}&limit=160`;
+                const resp = await fetch(url);
+                if (resp.ok) {
+                    const data = await resp.json();
+                    if (Array.isArray(data) && data.length) {
+                        candles = data;
+                    }
+                }
+            } catch (err) {}
+
+            // 2. Standalone / GitHub Pages Fallback: Direct Binance Open CORS API
+            if (!candles || !candles.length) {
+                const cleanSym = this.getCleanSymbol() + 'USDT';
+                const bUrl = `https://api.binance.com/api/v3/klines?symbol=${cleanSym}&interval=${this.currentInterval}&limit=160`;
+                try {
+                    const bResp = await fetch(bUrl);
+                    if (bResp.ok) {
+                        const raw = await bResp.json();
+                        if (Array.isArray(raw)) {
+                            candles = raw.map(k => ({
+                                time: k[0],
+                                open: parseFloat(k[1]),
+                                high: parseFloat(k[2]),
+                                low: parseFloat(k[3]),
+                                close: parseFloat(k[4]),
+                                volume: parseFloat(k[5])
+                            }));
+                        }
+                    }
+                } catch (bErr) {
+                    console.warn("Direct Binance fallback failed:", bErr);
+                }
+            }
+
+            if (candles && candles.length) {
                 if (!this.candleCache) this.candleCache = new Map();
                 this.candleCache.set(cacheKey, candles);
 
@@ -434,7 +487,7 @@ class OpenChartApp {
                 this.applyQuickIndicators();
             }
         } catch (e) {
-            console.error("Error fetching CoinDCX candles:", e);
+            console.error("Error loading candles:", e);
         }
     }
 
@@ -856,43 +909,75 @@ class OpenChartApp {
     }
 
     connectWebSocket() {
+        const isGithubPages = window.location.hostname.includes('github.io');
+        if (isGithubPages) {
+            this.connectDirectBinanceWs();
+            return;
+        }
+
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${protocol}//${window.location.host}/ws`;
 
-        this.ws = new WebSocket(wsUrl);
+        try {
+            this.ws = new WebSocket(wsUrl);
 
-        this.ws.onopen = () => {
-            console.log("[WebSocket] Connected to Open Chart live feed");
-            this.ws.send(JSON.stringify({ action: 'subscribe', pair: this.currentPair }));
-        };
+            this.ws.onopen = () => {
+                console.log("[WebSocket] Connected to Open Chart live feed");
+                this.ws.send(JSON.stringify({ action: 'subscribe', pair: this.currentPair }));
+            };
 
-        this.ws.onmessage = (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                if (data.type === 'tick') {
-                    if (data.symbol === this.currentPair || data.symbol.replace("B-", "") === this.currentPair.replace("B-", "")) {
-                        this.chart.updateCurrentCandle(data);
-                        this.updateTickerHeader();
+            this.ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'tick') {
+                        if (data.symbol === this.currentPair || data.symbol.replace("B-", "") === this.currentPair.replace("B-", "")) {
+                            this.chart.updateCurrentCandle(data);
+                            this.updateTickerHeader();
+                        }
+
+                        if (data.events && data.events.length > 0) {
+                            data.events.forEach(ev => {
+                                if (ev.event === 'position_closed') {
+                                    console.log(`[Alert] Position closed via ${ev.reason}: Realized PnL: $${ev.record.realized_pnl}`);
+                                }
+                            });
+                            this.loadPortfolio();
+                        }
                     }
-
-                    if (data.events && data.events.length > 0) {
-                        data.events.forEach(ev => {
-                            if (ev.event === 'position_closed') {
-                                console.log(`[Alert] Position closed via ${ev.reason}: Realized PnL: $${ev.record.realized_pnl}`);
-                            }
-                        });
-                        this.loadPortfolio();
-                    }
+                } catch (e) {
+                    console.error("WS Parse error:", e);
                 }
-            } catch (e) {
-                console.error("WS Parse error:", e);
-            }
-        };
+            };
 
-        this.ws.onclose = () => {
-            console.log("[WebSocket] Disconnected. Reconnecting in 2s...");
-            setTimeout(() => this.connectWebSocket(), 2000);
-        };
+            this.ws.onerror = () => {
+                this.connectDirectBinanceWs();
+            };
+
+            this.ws.onclose = () => {
+                setTimeout(() => this.connectWebSocket(), 3000);
+            };
+        } catch (e) {
+            this.connectDirectBinanceWs();
+        }
+    }
+
+    connectDirectBinanceWs() {
+        try {
+            if (this.binanceWs) this.binanceWs.close();
+            const symbol = (this.getCleanSymbol() + 'usdt').toLowerCase();
+            this.binanceWs = new WebSocket(`wss://stream.binance.com:9443/ws/${symbol}@trade`);
+
+            this.binanceWs.onmessage = (e) => {
+                const tick = JSON.parse(e.data);
+                if (tick && tick.p) {
+                    this.chart.updateCurrentCandle({
+                        price: parseFloat(tick.p),
+                        quantity: parseFloat(tick.q)
+                    });
+                    this.updateTickerHeader();
+                }
+            };
+        } catch (err) {}
     }
 
     async handleRunReaAgent() {

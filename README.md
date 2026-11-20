@@ -1,6 +1,11 @@
 # Open Chart ◈ 3D Candlestick Trading Terminal
 
-> **An advanced, open-source, hardware-accelerated alternative to TradingView** featuring volumetric 3D candlesticks with glossy and matte finishes, a full **Pine Script v5** execution engine with backtesting, interactive draggable **Take-Profit (TP) / Stop-Loss (SL)** handles directly on the chart, live **CoinDCX WebSocket** data streaming across 600+ coins, and a complete suite of professional marking tools.
+[![Deploy to GitHub Pages](https://github.com/kapilpatel89/Open-chart/actions/workflows/deploy-pages.yml/badge.svg)](https://github.com/kapilpatel89/Open-chart/actions/workflows/deploy-pages.yml)
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-brightgreen?style=for-the-badge&logo=github)](https://kapilpatel89.github.io/Open-chart/)
+
+> 🌐 **Live Web Application Link:** **[https://kapilpatel89.github.io/Open-chart/](https://kapilpatel89.github.io/Open-chart/)**
+>
+> **An advanced, open-source, hardware-accelerated alternative to TradingView** featuring volumetric 3D candlesticks with glossy and matte finishes, a full **Pine Script v5** execution engine with backtesting, interactive draggable **Take-Profit (TP) / Stop-Loss (SL)** handles directly on the chart, live multi-market streaming data across 600+ coins, and a complete suite of professional marking tools.
 
 ---
 
