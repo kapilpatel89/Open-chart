@@ -107,7 +107,15 @@ class OpenChart3D {
         this.render();
     }
 
+    showLoading(symbol = '') {
+        this.isLoading = true;
+        this.loadingSymbol = symbol;
+        this.render();
+    }
+
     setCandles(candles, forceReset = true) {
+        this.isLoading = false;
+        this.loadingSymbol = '';
         this.candles = candles || [];
         if (forceReset || this.autoScale || this.offsetX === 0) {
             this.resetView();
@@ -230,10 +238,13 @@ class OpenChart3D {
     }
 
     priceToY(price) {
-        const { min, max } = this.priceRange;
+        if (!isFinite(price)) price = 0;
+        const min = isFinite(this.priceRange.min) ? this.priceRange.min : 0;
+        const max = isFinite(this.priceRange.max) ? this.priceRange.max : 100;
         const range = max - min || 1;
         const ratio = (price - min) / range;
-        return this.mainChartHeight - (ratio * this.mainChartHeight) + 15;
+        const chartH = Math.max(80, this.mainChartHeight || (this.height - 100));
+        return Math.max(5, Math.min(this.height, chartH - (ratio * chartH) + 15));
     }
 
     yToPrice(y) {
@@ -262,6 +273,11 @@ class OpenChart3D {
 
         // 1. Satin Matte Background
         this.drawBackground(ctx);
+
+        if (this.isLoading && (!this.candles || !this.candles.length)) {
+            this.drawLoadingState(ctx);
+            return;
+        }
 
         if (!this.candles.length) {
             this.drawEmptyState(ctx);
@@ -358,11 +374,45 @@ class OpenChart3D {
         ctx.fillRect(0, 0, this.width, this.height);
     }
 
-    drawEmptyState(ctx) {
-        ctx.fillStyle = this.options.textColor;
-        ctx.font = '14px Inter, sans-serif';
+    drawLoadingState(ctx) {
+        ctx.save();
+        ctx.fillStyle = '#00f0ff';
+        ctx.font = '600 16px Inter, sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText('Loading CoinDCX Live Candlesticks & WebSockets...', this.width / 2, this.height / 2);
+        const msg = this.loadingSymbol ? `⚡ Switching to ${this.loadingSymbol}...` : 'Loading Candlesticks...';
+        ctx.fillText(msg, this.width / 2, this.height / 2 - 12);
+
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+        ctx.font = '12px Inter, sans-serif';
+        ctx.fillText('Syncing CoinDCX WebSocket Stream & Order Depth', this.width / 2, this.height / 2 + 12);
+
+        const barW = 180;
+        const barH = 3;
+        const barX = (this.width - barW) / 2;
+        const barY = this.height / 2 + 28;
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+        ctx.fillRect(barX, barY, barW, barH);
+
+        const animX = barX + ((Date.now() / 4) % (barW - 40));
+        const barGrad = ctx.createLinearGradient(animX, 0, animX + 40, 0);
+        barGrad.addColorStop(0, 'rgba(0, 240, 255, 0.1)');
+        barGrad.addColorStop(0.5, '#00f0ff');
+        barGrad.addColorStop(1, 'rgba(0, 230, 118, 0.1)');
+        ctx.fillStyle = barGrad;
+        ctx.fillRect(animX, barY, 40, barH);
+        ctx.restore();
+    }
+
+    drawEmptyState(ctx) {
+        ctx.save();
+        ctx.fillStyle = '#00f0ff';
+        ctx.font = '600 15px Inter, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Connecting to CoinDCX Live Stream...', this.width / 2, this.height / 2 - 10);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+        ctx.font = '12px Inter, sans-serif';
+        ctx.fillText('Real-time 3D Candlesticks will appear here', this.width / 2, this.height / 2 + 12);
+        ctx.restore();
     }
 
     drawGrid(ctx) {
