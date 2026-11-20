@@ -107,11 +107,12 @@ class OpenChart3D {
         this.render();
     }
 
-    setCandles(candles) {
+    setCandles(candles, forceReset = true) {
         this.candles = candles || [];
-        if (this.autoScale || this.offsetX === 0) {
+        if (forceReset || this.autoScale || this.offsetX === 0) {
             this.resetView();
         } else {
+            this.updatePriceRange();
             this.render();
         }
     }
@@ -126,6 +127,7 @@ class OpenChart3D {
         last.low = Math.min(last.low, price);
         last.volume += (tick.quantity || 0);
 
+        this.updatePriceRange();
         this.render();
     }
 
@@ -333,7 +335,14 @@ class OpenChart3D {
             console.error("Crosshair render error:", e);
         }
 
-        // 11. Axes: Dedicated Bottom Timeline & Right Price Axis
+        // 11. Ongoing Live Price Line touching candlestick
+        try {
+            this.drawLivePriceLine(ctx);
+        } catch (e) {
+            console.error("Live price line render error:", e);
+        }
+
+        // 12. Axes: Dedicated Bottom Timeline & Right Price Axis
         try {
             this.drawAxes(ctx);
         } catch (e) {
@@ -1139,6 +1148,63 @@ class OpenChart3D {
         ctx.textBaseline = 'middle';
         ctx.fillText(text, 18, 22);
         ctx.restore();
+    }
+
+    /**
+     * Ongoing Live Price Line touching the latest candlestick
+     * Draws a laser dashed line connecting the forming candle's close price to the price axis,
+     * complete with a pulsating neon beacon dot right where it touches the candlestick.
+     */
+    drawLivePriceLine(ctx) {
+        if (!this.candles || !this.candles.length) return;
+        const lastIdx = this.candles.length - 1;
+        const lastCandle = this.candles[lastIdx];
+        if (!lastCandle) return;
+
+        const liveY = this.priceToY(lastCandle.close);
+        const lastCandleX = this.candleToX(lastIdx);
+        const chartRight = this.width - this.priceAxisWidth;
+        const isBullish = lastCandle.close >= lastCandle.open;
+        const lineColor = isBullish ? '#00e676' : '#ff1744';
+
+        // Start where the line touches the right side of the candlestick
+        const touchX = Math.max(0, lastCandleX + this.candleWidth);
+
+        // 1. Live Horizontal Price Line from candle touch point to price axis
+        ctx.save();
+        ctx.strokeStyle = lineColor;
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([5, 3]);
+        ctx.shadowColor = lineColor;
+        ctx.shadowBlur = 8;
+
+        ctx.beginPath();
+        ctx.moveTo(touchX, liveY);
+        ctx.lineTo(chartRight, liveY);
+        ctx.stroke();
+        ctx.restore();
+
+        // 2. Pulsing Neon Dot right where it touches the candlestick
+        if (touchX >= 0 && touchX <= chartRight) {
+            const time = Date.now() * 0.006;
+            const pulse = 1 + 0.35 * Math.sin(time);
+
+            ctx.save();
+            // Outer glowing beacon halo
+            ctx.fillStyle = isBullish ? 'rgba(0, 230, 118, 0.28)' : 'rgba(255, 23, 68, 0.28)';
+            ctx.beginPath();
+            ctx.arc(touchX, liveY, 7 * pulse, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Inner solid white core touching the candle
+            ctx.fillStyle = '#ffffff';
+            ctx.shadowColor = lineColor;
+            ctx.shadowBlur = 10;
+            ctx.beginPath();
+            ctx.arc(touchX, liveY, 2.5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
     }
 
     /**

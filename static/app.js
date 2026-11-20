@@ -15,6 +15,7 @@ class OpenChartApp {
         this.portfolio = null;
         this.markets = [];
         this.activeContextPrice = 0;
+        this.candleCache = new Map();
 
         // Order Form State
         this.orderType = 'market';
@@ -79,14 +80,10 @@ class OpenChartApp {
             this.onMarketChange();
         });
 
-        // Timeframe Buttons
+        // Timeframe Buttons with Instant Cache & Immediate Switch
         document.querySelectorAll('.tf-btn').forEach(btn => {
             btn.addEventListener('click', () => {
-                document.querySelectorAll('.tf-btn').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                this.currentInterval = btn.dataset.tf;
-                window.currentInterval = this.currentInterval;
-                this.loadCandles();
+                this.switchTimeframe(btn.dataset.tf);
             });
         });
 
@@ -391,13 +388,47 @@ class OpenChartApp {
         `).join('');
     }
 
-    async loadCandles() {
+    async switchTimeframe(interval) {
+        if (!interval) return;
+        const normInterval = interval.toLowerCase();
+        this.currentInterval = normInterval;
+        window.currentInterval = normInterval;
+
+        // 1. Immediately update active timeframe UI button
+        document.querySelectorAll('.tf-btn').forEach(b => {
+            b.classList.toggle('active', b.dataset.tf.toLowerCase() === normInterval);
+        });
+
+        const cacheKey = `${this.currentPair}_${normInterval}`;
+
+        // 2. Instant Cache Switch (0ms Immediate Chart Load)
+        if (this.candleCache && this.candleCache.has(cacheKey)) {
+            const cachedCandles = this.candleCache.get(cacheKey);
+            this.chart.setCandles(cachedCandles, true);
+            this.updateTickerHeader();
+            this.recalculateTpSlPreviews();
+            this.applyQuickIndicators();
+            this.pineIDE.executeScript(this.currentPair, this.currentInterval);
+        }
+
+        // 3. Fetch fresh update from CoinDCX API
+        await this.loadCandles(true);
+
+        // 4. Re-run Pine Script with fresh data for this timeframe
+        this.pineIDE.executeScript(this.currentPair, this.currentInterval);
+    }
+
+    async loadCandles(forceReset = true) {
         try {
+            const cacheKey = `${this.currentPair}_${this.currentInterval}`;
             const url = `/api/candles?pair=${encodeURIComponent(this.currentPair)}&interval=${this.currentInterval}&limit=160`;
             const resp = await fetch(url);
             const candles = await resp.json();
             if (Array.isArray(candles) && candles.length) {
-                this.chart.setCandles(candles);
+                if (!this.candleCache) this.candleCache = new Map();
+                this.candleCache.set(cacheKey, candles);
+
+                this.chart.setCandles(candles, forceReset);
                 this.updateTickerHeader();
                 this.recalculateTpSlPreviews();
                 this.applyQuickIndicators();

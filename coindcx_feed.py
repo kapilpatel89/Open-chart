@@ -24,6 +24,7 @@ class CoinDCXFeed:
         self.subscribers: List[Callable[[Dict[str, Any]], None]] = []
         self.active_pairs: set = {"B-BTC_USDT", "B-ETH_USDT", "B-SOL_USDT", "B-XRP_USDT", "B-DOGE_USDT"}
         self.live_prices: Dict[str, float] = {}
+        self._candles_cache: Dict[str, Any] = {}
         self._running = False
         self._sio_connected = False
 
@@ -90,21 +91,33 @@ class CoinDCXFeed:
 
     def fetch_candles(self, pair: str, interval: str = "1h", limit: int = 160) -> List[Dict[str, Any]]:
         """Fetch historical OHLCV candlesticks for given pair and timeframe."""
-        clean_pair = pair
+        clean_pair = pair.strip()
+        norm_interval = interval.lower().strip()
         if not clean_pair.startswith("B-") and "_" in clean_pair:
             clean_pair = f"B-{clean_pair}"
+
+        cache_key = f"{clean_pair}_{norm_interval}_{limit}"
+        now = time.time()
+        if hasattr(self, "_candles_cache") and cache_key in self._candles_cache:
+            cached_time, cached_data = self._candles_cache[cache_key]
+            if now - cached_time < 5.0 and len(cached_data) > 0:
+                return cached_data
 
         candidates = [clean_pair]
         stripped = re.sub(r'1000000|100000|10000|1000|1M|1K', '', clean_pair)
         if stripped != clean_pair:
             candidates.append(stripped)
 
+        # Also support spot pair fallback without B- if futures fails
+        if clean_pair.startswith("B-"):
+            candidates.append(clean_pair.replace("B-", ""))
+
         # Standard intervals: 1m, 5m, 15m, 30m, 1h, 2h, 4h, 8h, 1d
         for p in candidates:
-            url = f"{self.PUBLIC_BASE_URL}/market_data/candles/?pair={p}&interval={interval}&limit={limit}"
-            req = urllib.request.Request(url, headers={"User-Agent": "CoinDCX-Pro-Terminal/1.0"})
+            url = f"{self.PUBLIC_BASE_URL}/market_data/candles/?pair={p}&interval={norm_interval}&limit={limit}"
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) CoinDCX-Pro/2.0"})
             try:
-                with urllib.request.urlopen(req, timeout=8) as resp:
+                with urllib.request.urlopen(req, timeout=6) as resp:
                     data = json.loads(resp.read().decode())
                     if isinstance(data, list) and len(data) > 0:
                         candles = []
@@ -121,6 +134,7 @@ class CoinDCXFeed:
                                 "volume": float(c.get("volume", 0))
                             })
                         candles.sort(key=lambda x: x["time"])
+                        self._candles_cache[cache_key] = (now, candles)
                         return candles
             except Exception:
                 continue
