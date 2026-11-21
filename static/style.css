@@ -359,41 +359,63 @@ body {
     margin: 3px 0;
 }
 
-/* Context Menu */
+/* Context Menu (Global Right-Click for All Charts) */
 .context-menu {
     display: none;
     position: fixed;
-    background: rgba(15, 19, 30, 0.95);
-    backdrop-filter: blur(12px);
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
+    background: rgba(13, 19, 31, 0.96);
+    backdrop-filter: blur(14px);
+    border: 1px solid rgba(0, 240, 255, 0.35);
+    border-radius: 8px;
     padding: 6px 0;
-    z-index: 200;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.7);
-    min-width: 180px;
+    z-index: 999999;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.8), 0 0 15px rgba(0, 240, 255, 0.15);
+    min-width: 220px;
+    pointer-events: auto;
 }
 
 .context-menu.show {
     display: block;
 }
 
+.context-header {
+    padding: 6px 14px;
+    font-size: 11px;
+    font-family: var(--font-mono);
+    color: var(--accent-cyan);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    margin-bottom: 4px;
+}
+
 .context-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
     padding: 8px 14px;
     font-size: 11px;
     font-family: var(--font-mono);
     color: var(--text-primary);
     cursor: pointer;
-    transition: background 0.15s;
+    transition: background 0.15s, color 0.15s;
 }
 
 .context-item:hover {
-    background: rgba(0, 240, 255, 0.12);
+    background: rgba(0, 240, 255, 0.15);
     color: var(--accent-cyan);
+}
+
+.context-item b {
+    color: var(--accent-cyan);
+    font-weight: 600;
 }
 
 .context-divider {
     height: 1px;
-    background: var(--border-color);
+    background: rgba(255, 255, 255, 0.08);
     margin: 4px 0;
 }
 

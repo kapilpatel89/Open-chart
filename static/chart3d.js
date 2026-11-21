@@ -1871,13 +1871,14 @@ class OpenChart3D {
 
     onContextMenu(e) {
         e.preventDefault();
+        e.stopPropagation();
         const rect = this.canvas.getBoundingClientRect();
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
         const price = this.yToPrice(y);
 
         if (this.onContextMenuRequest) {
-            this.onContextMenuRequest(e.clientX, e.clientY, price);
+            this.onContextMenuRequest(e.clientX, e.clientY, price, this);
         }
     }
 

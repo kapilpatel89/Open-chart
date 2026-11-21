@@ -158,19 +158,8 @@
                     <button id="btn-zoom-in" title="Zoom In">+</button>
                     <button id="btn-zoom-out" title="Zoom Out">−</button>
                     <div class="chart-hint-badge">
-                        💡 <b>Interactive:</b> Right-click to Place Limit Order • Drag <b>[TP]</b> & <b>[SL]</b> handles to update!
+                        💡 <b>Interactive:</b> Right-click on any chart for Order & Chart Tools • Drag <b>[TP]</b> & <b>[SL]</b> handles!
                     </div>
-                </div>
-
-                <!-- Custom Right-Click Context Menu -->
-                <div id="chart-context-menu" class="context-menu">
-                    <div class="context-item" id="ctx-limit-buy">🟢 Buy Limit @ $<span class="ctx-price">0.00</span></div>
-                    <div class="context-item" id="ctx-limit-sell">🔴 Sell Limit @ $<span class="ctx-price">0.00</span></div>
-                    <div class="context-divider"></div>
-                    <div class="context-item" id="ctx-set-tp">🎯 Set Take Profit Here</div>
-                    <div class="context-item" id="ctx-set-sl">🛑 Set Stop Loss Here</div>
-                    <div class="context-divider"></div>
-                    <div class="context-item" id="ctx-reset-chart">⟲ Reset Chart Scale</div>
                 </div>
             </div>
 
@@ -430,6 +419,22 @@
                 </div>
             </div>
         </section>
+    </div>
+
+    <!-- Custom Right-Click Context Menu (Global for all chart panes) -->
+    <div id="chart-context-menu" class="context-menu">
+        <div class="context-header" id="ctx-header-title">BTC / USDT</div>
+        <div class="context-item" id="ctx-limit-buy"><span>🟢 Buy Limit</span> <b>$<span class="ctx-price">0.00</span></b></div>
+        <div class="context-item" id="ctx-limit-sell"><span>🔴 Sell Limit</span> <b>$<span class="ctx-price">0.00</span></b></div>
+        <div class="context-divider"></div>
+        <div class="context-item" id="ctx-set-tp"><span>🎯 Set Take Profit</span> <b>$<span class="ctx-price">0.00</span></b></div>
+        <div class="context-item" id="ctx-set-sl"><span>🛑 Set Stop Loss</span> <b>$<span class="ctx-price">0.00</span></b></div>
+        <div class="context-divider"></div>
+        <div class="context-item" id="ctx-reset-chart"><span>⟲ Reset & Auto Scale</span></div>
+        <div class="context-item" id="ctx-center-live"><span>➜ Jump to Live Candle</span></div>
+        <div class="context-divider"></div>
+        <div class="context-item" id="ctx-open-pine"><span>⚡ Open Pine Script IDE</span></div>
+        <div class="context-item" id="ctx-clear-drawings"><span>🗑 Clear Drawings</span></div>
     </div>
 
     <!-- Scripts -->

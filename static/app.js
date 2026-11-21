@@ -43,9 +43,7 @@ class OpenChartApp {
             this.updateOrderTpSl(itemId, newTp, newSl);
         };
 
-        this.chart.onContextMenuRequest = (clientX, clientY, price) => {
-            this.showContextMenu(clientX, clientY, price);
-        };
+        this.attachChartContextMenu(this.chart, 0);
 
         // Register Pane 0
         this.panes.set(0, {
@@ -55,10 +53,17 @@ class OpenChartApp {
             chart: this.chart
         });
 
-        // Click on pane 0 activates it
+        // Click on pane 0 activates it; ensure right-click context menu always works
         const pane0El = document.getElementById('pane-0');
         if (pane0El) {
             pane0El.addEventListener('click', () => this.setActivePane(0));
+            pane0El.addEventListener('contextmenu', (e) => {
+                if (e.target && e.target.tagName && e.target.tagName.toLowerCase() === 'canvas') return;
+                e.preventDefault();
+                e.stopPropagation();
+                const curP = this.chart?.candles?.[this.chart.candles.length - 1]?.close || 100;
+                this.showContextMenu(e.clientX, e.clientY, curP, this.chart, 0);
+            });
         }
 
         // 2. Initialize Pine Script IDE
@@ -328,25 +333,62 @@ class OpenChartApp {
 
         submitBtn.addEventListener('click', () => this.handleOrderSubmit());
 
-        // Context Menu Action Handlers
-        document.getElementById('ctx-limit-buy').addEventListener('click', () => {
+        // Context Menu Action Handlers (All Charts Support)
+        document.getElementById('ctx-limit-buy')?.addEventListener('click', () => {
             this.setupLimitOrder('buy', this.activeContextPrice);
+            this.hideContextMenu();
         });
-        document.getElementById('ctx-limit-sell').addEventListener('click', () => {
+        document.getElementById('ctx-limit-sell')?.addEventListener('click', () => {
             this.setupLimitOrder('sell', this.activeContextPrice);
+            this.hideContextMenu();
         });
-        document.getElementById('ctx-set-tp').addEventListener('click', () => {
-            document.getElementById('order-tp').value = this.activeContextPrice.toFixed(2);
-            document.getElementById('check-tp').checked = true;
+        document.getElementById('ctx-set-tp')?.addEventListener('click', () => {
+            const sidebar = document.getElementById('sidebar');
+            if (sidebar) sidebar.classList.remove('hidden');
+            document.querySelector('[data-tab="tab-trade"]')?.click();
+            const tpEl = document.getElementById('order-tp');
+            if (tpEl) tpEl.value = this.formatPrice(this.activeContextPrice);
+            const chkTp = document.getElementById('check-tp');
+            if (chkTp) chkTp.checked = true;
             this.recalculateTpSlPreviews();
+            this.hideContextMenu();
         });
-        document.getElementById('ctx-set-sl').addEventListener('click', () => {
-            document.getElementById('order-sl').value = this.activeContextPrice.toFixed(2);
-            document.getElementById('check-sl').checked = true;
+        document.getElementById('ctx-set-sl')?.addEventListener('click', () => {
+            const sidebar = document.getElementById('sidebar');
+            if (sidebar) sidebar.classList.remove('hidden');
+            document.querySelector('[data-tab="tab-trade"]')?.click();
+            const slEl = document.getElementById('order-sl');
+            if (slEl) slEl.value = this.formatPrice(this.activeContextPrice);
+            const chkSl = document.getElementById('check-sl');
+            if (chkSl) chkSl.checked = true;
             this.recalculateTpSlPreviews();
+            this.hideContextMenu();
         });
-        document.getElementById('ctx-reset-chart').addEventListener('click', () => {
-            this.chart.resetView();
+        document.getElementById('ctx-reset-chart')?.addEventListener('click', () => {
+            const targetChart = this.activeContextChart || this.chart;
+            targetChart.resetView();
+            this.hideContextMenu();
+        });
+        document.getElementById('ctx-center-live')?.addEventListener('click', () => {
+            const targetChart = this.activeContextChart || this.chart;
+            if (targetChart && targetChart.centerOnLiveCandle) {
+                targetChart.centerOnLiveCandle();
+            }
+            this.hideContextMenu();
+        });
+        document.getElementById('ctx-open-pine')?.addEventListener('click', () => {
+            const dock = document.getElementById('bottom-dock');
+            if (dock) {
+                dock.classList.remove('hidden');
+                dock.classList.remove('collapsed');
+                document.querySelector('[data-dock="dock-pine"]')?.click();
+            }
+            this.hideContextMenu();
+        });
+        document.getElementById('ctx-clear-drawings')?.addEventListener('click', () => {
+            const targetChart = this.activeContextChart || this.chart;
+            targetChart.clearDrawings();
+            this.hideContextMenu();
         });
 
         // Pine Template Dropdown
@@ -927,12 +969,51 @@ class OpenChartApp {
         }
     }
 
-    showContextMenu(clientX, clientY, price) {
+    formatPrice(price) {
+        if (!isFinite(price) || price <= 0) return '0.00';
+        if (price >= 100) return price.toFixed(2);
+        if (price >= 1) return price.toFixed(2);
+        if (price >= 0.01) return price.toFixed(4);
+        return price.toFixed(6);
+    }
+
+    attachChartContextMenu(chartInstance, paneId) {
+        if (!chartInstance) return;
+        chartInstance.onContextMenuRequest = (clientX, clientY, price, chartRef) => {
+            this.showContextMenu(clientX, clientY, price, chartRef || chartInstance, paneId);
+        };
+    }
+
+    showContextMenu(clientX, clientY, price, chartInstance = null, paneId = null) {
+        if (paneId !== null) {
+            this.setActivePane(paneId);
+        }
+        const pObj = (paneId !== null && this.panes.has(paneId)) ? this.panes.get(paneId) : null;
+        const pair = pObj ? pObj.pair : (this.currentPair || 'B-BTC_USDT');
+        const cleanSym = this.cleanSymbol(pair);
+
         this.activeContextPrice = price;
+        this.activeContextChart = chartInstance || this.chart;
+        this.activeContextPaneId = paneId !== null ? paneId : this.activePaneId;
+        this.activeContextPair = pair;
+
         const menu = document.getElementById('chart-context-menu');
-        document.querySelectorAll('.ctx-price').forEach(el => el.textContent = price.toFixed(2));
-        menu.style.top = `${clientY}px`;
-        menu.style.left = `${clientX}px`;
+        if (!menu) return;
+
+        const titleEl = document.getElementById('ctx-header-title');
+        if (titleEl) titleEl.textContent = `${cleanSym} / USDT`;
+
+        const priceStr = this.formatPrice(price);
+        document.querySelectorAll('.ctx-price').forEach(el => el.textContent = priceStr);
+
+        // Screen boundary clamping so menu is never off-screen
+        const menuW = 230;
+        const menuH = 280;
+        const posX = Math.max(10, Math.min(clientX, window.innerWidth - menuW - 10));
+        const posY = Math.max(10, Math.min(clientY, window.innerHeight - menuH - 10));
+
+        menu.style.top = `${posY}px`;
+        menu.style.left = `${posX}px`;
         menu.classList.add('show');
     }
 
@@ -942,14 +1023,32 @@ class OpenChartApp {
     }
 
     setupLimitOrder(side, price) {
-        document.querySelector('[data-tab="tab-trade"]').click();
-        document.getElementById('btn-order-type-limit').click();
-        if (side === 'buy') {
-            document.getElementById('btn-side-buy').click();
-        } else {
-            document.getElementById('btn-side-sell').click();
+        const sidebar = document.getElementById('sidebar');
+        if (sidebar) {
+            sidebar.classList.remove('hidden');
+            setTimeout(() => { if (this.activeContextChart) this.activeContextChart.resize(); }, 120);
         }
-        document.getElementById('order-price').value = price.toFixed(2);
+
+        if (this.activeContextPair && this.activeContextPair !== this.currentPair) {
+            this.currentPair = this.activeContextPair;
+            window.currentPair = this.currentPair;
+            const coinSelect = document.getElementById('coin-select');
+            if (coinSelect) coinSelect.value = this.currentPair;
+            this.updateTickerHeader();
+        }
+
+        document.querySelector('[data-tab="tab-trade"]')?.click();
+        document.getElementById('btn-order-type-limit')?.click();
+        if (side === 'buy') {
+            document.getElementById('btn-side-buy')?.click();
+        } else {
+            document.getElementById('btn-side-sell')?.click();
+        }
+
+        const priceEl = document.getElementById('order-price');
+        if (priceEl) {
+            priceEl.value = this.formatPrice(price);
+        }
         this.recalculateTpSlPreviews();
     }
 
@@ -1263,6 +1362,8 @@ class OpenChartApp {
                     timeframe: defaultTf
                 });
 
+                this.attachChartContextMenu(paneChart, id);
+
                 this.panes.set(id, {
                     id: id,
                     pair: defaultPair,
@@ -1272,6 +1373,14 @@ class OpenChartApp {
 
                 // Bind events for this pane
                 paneEl.addEventListener('click', () => this.setActivePane(id));
+                paneEl.addEventListener('contextmenu', (e) => {
+                    if (e.target && e.target.tagName && e.target.tagName.toLowerCase() === 'canvas') return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const p = this.panes.get(id);
+                    const curP = p?.chart?.candles?.[p.chart.candles.length - 1]?.close || 100;
+                    this.showContextMenu(e.clientX, e.clientY, curP, p?.chart, id);
+                });
                 selectEl.addEventListener('change', (e) => {
                     const p = this.panes.get(id);
                     if (p) {
