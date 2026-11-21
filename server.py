@@ -18,7 +18,6 @@ from fastapi.staticfiles import StaticFiles
 from coindcx_feed import CoinDCXFeed
 from order_manager import OrderManager
 from pine_engine import PineEngine
-from rea_agent import ReaAgent
 
 app = FastAPI(title="Open Chart - 3D Trading Terminal", version="2.0.0")
 
@@ -175,19 +174,6 @@ async def execute_pine_script(
     candles = await asyncio.to_thread(feed.fetch_candles, pair, interval, 200)
     result = PineEngine.execute_script(code, candles)
     return result
-
-@app.post("/api/rea/analyze")
-async def rea_agent_analysis(
-    tool_name: str = Body("inspect_native_load_image"),
-    args: Dict[str, Any] = Body({})
-):
-    """Directly invoke the local REA Agent MCP server."""
-    try:
-        async with ReaAgent() as agent:
-            result = await agent.call_tool(tool_name, args)
-            return {"status": "success", "tool": tool_name, "result": str(result)}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):

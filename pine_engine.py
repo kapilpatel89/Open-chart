@@ -599,6 +599,19 @@ class PineEngine:
     def _evaluate_expr(cls, expr: str, env: Dict[str, Any], n: int, opens, highs, lows, closes, volumes) -> Any:
         expr = expr.strip()
 
+        # 0. Handle input.* e.g. input.int(10, title="Lookback Period")
+        if expr.startswith("input"):
+            m = re.search(r'input(?:\.[a-zA-Z]+)?\(\s*([^,)]+)', expr)
+            if m:
+                raw_val = m.group(1).strip()
+                if raw_val.lower() == "true": return True
+                if raw_val.lower() == "false": return False
+                try:
+                    return float(raw_val) if "." in raw_val else int(raw_val)
+                except ValueError:
+                    return raw_val.strip("\"'")
+            return 10
+
         # Handle compound boolean expressions e.g. ta.crossover(a, b) and rsi < 70
         if " and " in expr or " or " in expr:
             res = [False] * n
@@ -613,12 +626,24 @@ class PineEngine:
                     res[b] = cls._eval_condition_at_bar(expr, env, b)
                 return res
 
+        def _resolve_int(val_str: str, default: int = 14) -> int:
+            val_str = val_str.strip()
+            if val_str in env:
+                try:
+                    return int(float(env[val_str]))
+                except (ValueError, TypeError):
+                    pass
+            try:
+                return int(float(val_str))
+            except (ValueError, TypeError):
+                return default
+
         # 1. ta.ema(source, length)
         if expr.startswith("ta.ema"):
             args = cls._extract_call_args(expr)
             src_name = args[0] if len(args) > 0 else "close"
             src = env.get(src_name, closes)
-            period = int(args[1]) if len(args) > 1 else 9
+            period = _resolve_int(args[1], 9) if len(args) > 1 else 9
             return cls.calculate_ema(src, period)
 
         # 2. ta.sma(source, length)
@@ -626,7 +651,7 @@ class PineEngine:
             args = cls._extract_call_args(expr)
             src_name = args[0] if len(args) > 0 else "close"
             src = env.get(src_name, closes)
-            period = int(args[1]) if len(args) > 1 else 20
+            period = _resolve_int(args[1], 20) if len(args) > 1 else 20
             return cls.calculate_sma(src, period)
 
         # 3. ta.rsi(source, length)
@@ -634,13 +659,13 @@ class PineEngine:
             args = cls._extract_call_args(expr)
             src_name = args[0] if len(args) > 0 else "close"
             src = env.get(src_name, closes)
-            period = int(args[1]) if len(args) > 1 else 14
+            period = _resolve_int(args[1], 14) if len(args) > 1 else 14
             return cls.calculate_rsi(src, period)
 
         # 4. ta.atr(length)
         if expr.startswith("ta.atr"):
             args = cls._extract_call_args(expr)
-            period = int(args[0]) if len(args) > 0 else 14
+            period = _resolve_int(args[0], 14) if len(args) > 0 else 14
             return cls.calculate_atr(highs, lows, closes, period)
 
         # 5. ta.highest(source, length)
@@ -648,7 +673,7 @@ class PineEngine:
             args = cls._extract_call_args(expr)
             src_name = args[0] if len(args) > 0 else "high"
             src = env.get(src_name, highs)
-            period = int(args[1]) if len(args) > 1 else 20
+            period = _resolve_int(args[1], 20) if len(args) > 1 else 20
             res = [None] * n
             for i in range(period - 1, n):
                 res[i] = max(src[i - period + 1 : i + 1])
@@ -659,7 +684,7 @@ class PineEngine:
             args = cls._extract_call_args(expr)
             src_name = args[0] if len(args) > 0 else "low"
             src = env.get(src_name, lows)
-            period = int(args[1]) if len(args) > 1 else 20
+            period = _resolve_int(args[1], 20) if len(args) > 1 else 20
             res = [None] * n
             for i in range(period - 1, n):
                 res[i] = min(src[i - period + 1 : i + 1])

@@ -9,7 +9,6 @@ import time
 from coindcx_feed import CoinDCXFeed
 from order_manager import OrderManager
 from pine_engine import PineEngine
-from rea_agent import ReaAgent
 
 async def run_all_tests():
     print("==================================================")
@@ -88,12 +87,28 @@ async def run_all_tests():
     assert len(om.positions) == 0, "Position should be closed after TP hit!"
     assert om.trade_history[0]['reason'] == "take_profit", "Close reason should be take_profit"
 
-    # 6. Test REA Agent Integration
-    print("\n[6/6] Testing REA Agent MCP Bridge...")
-    async with ReaAgent() as agent:
-        tools = await agent.list_tools()
-        print(f"  -> REA Agent Active! Discovered {len(tools)} reverse-engineering tools.")
-        assert len(tools) > 100, "REA MCP server did not return tools"
+    # 6. Test User's Support & Resistance Pine Script with input.int and color.red/green
+    print("\n[6/6] Testing User's Pine Script (input.int & Support/Resistance)...")
+    user_script = """
+    //@version=5
+    indicator("Simple Support Resistance", overlay=true)
+
+    length = input.int(10, title="Lookback Period")
+
+    resistance = ta.highest(high, length)
+    support = ta.lowest(low, length)
+
+    plot(resistance, title="Resistance", color=color.red, linewidth=2)
+    plot(support, title="Support", color=color.green, linewidth=2)
+    """
+    user_res = PineEngine.execute_script(user_script, candles)
+    print(f"  -> Generated {len(user_res['plots'])} overlay plots for user script.")
+    for p in user_res['plots']:
+        print(f"     * Plot: {p['title']} (color={p['color']}, points={len(p.get('data', []))})")
+    assert len(user_res['plots']) == 2, "Expected 2 plots for Resistance and Support!"
+    assert user_res['plots'][0]['title'] == "Resistance"
+    assert user_res['plots'][1]['title'] == "Support"
+    assert len(user_res['plots'][0]['data']) > 0, "Plot points should be non-empty!"
 
     print("\n==================================================")
     print("   ALL 6 SYSTEM VERIFICATION TESTS PASSED (100%)! ")

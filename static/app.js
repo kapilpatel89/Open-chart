@@ -362,9 +362,6 @@ class OpenChartApp {
             this.pineIDE.autoTradeEnabled = e.target.checked;
         });
 
-        // REA Agent Execution Button
-        document.getElementById('btn-run-rea').addEventListener('click', () => this.handleRunReaAgent());
-
         // Fullscreen Toggle Feature
         const toggleFullscreen = () => {
             const fsBtn = document.getElementById('btn-fullscreen');
@@ -405,13 +402,25 @@ class OpenChartApp {
             setTimeout(() => this.chart.resize(), 150);
         });
 
+        // Hideable / Collapsible Trade Panel
         document.getElementById('btn-toggle-order').addEventListener('click', () => {
-            document.querySelector('[data-tab="tab-trade"]').click();
+            const sidebar = document.getElementById('sidebar');
+            if (sidebar) {
+                sidebar.classList.toggle('hidden');
+                setTimeout(() => this.chart.resize(), 150);
+            }
         });
 
-        document.getElementById('btn-toggle-rea').addEventListener('click', () => {
-            document.querySelector('[data-tab="tab-rea"]').click();
-        });
+        const closeSidebarBtn = document.getElementById('btn-close-sidebar');
+        if (closeSidebarBtn) {
+            closeSidebarBtn.addEventListener('click', () => {
+                const sidebar = document.getElementById('sidebar');
+                if (sidebar) {
+                    sidebar.classList.add('hidden');
+                    setTimeout(() => this.chart.resize(), 150);
+                }
+            });
+        }
     }
 
     getCurrentPrice() {
@@ -446,7 +455,10 @@ class OpenChartApp {
             }
         }
         if (!hasCache) {
-            this.chart.showLoading(this.getCleanSymbol());
+            // Immediate zero-latency fallback candles so chart NEVER freezes or shows blank
+            const fallback = this.generateFallbackCandles();
+            this.chart.setCandles(fallback, true);
+            this.updateTickerHeader();
         }
 
         // 3. Immediately switch WebSocket subscriptions
@@ -473,34 +485,126 @@ class OpenChartApp {
     }
 
     async loadMarkets() {
-        try {
-            const resp = await fetch('/api/markets');
-            if (resp.ok) {
-                const data = await resp.json();
-                if (Array.isArray(data) && data.length) {
-                    this.markets = data;
-                    this.populateCoinDropdown(data);
-                    return;
-                }
-            }
-        } catch (e) {
-            console.warn("Local markets API unavailable, using fallback list.");
-        }
-
-        // Fallback default crypto markets for standalone & GitHub Pages
+        // Built-in list of top major crypto assets for 0ms instantaneous display
         const defaultMarkets = [
             { symbol: "BTC_USDT", name: "BTC / USDT", last_price: "62000.00", change_24h: 1.25, volume: 145000 },
             { symbol: "ETH_USDT", name: "ETH / USDT", last_price: "2450.00", change_24h: -0.85, volume: 98000 },
             { symbol: "SOL_USDT", name: "SOL / USDT", last_price: "155.00", change_24h: 3.40, volume: 76000 },
             { symbol: "XRP_USDT", name: "XRP / USDT", last_price: "0.58", change_24h: 0.40, volume: 54000 },
-            { symbol: "DOGE_USDT", name: "DOGE / USDT", last_price: "0.14", change_24h: 5.10, volume: 42000 }
+            { symbol: "DOGE_USDT", name: "DOGE / USDT", last_price: "0.14", change_24h: 5.10, volume: 42000 },
+            { symbol: "ADA_USDT", name: "ADA / USDT", last_price: "0.36", change_24h: 1.10, volume: 38000 },
+            { symbol: "AVAX_USDT", name: "AVAX / USDT", last_price: "28.50", change_24h: 2.30, volume: 35000 },
+            { symbol: "LINK_USDT", name: "LINK / USDT", last_price: "11.20", change_24h: -0.40, volume: 31000 },
+            { symbol: "DOT_USDT", name: "DOT / USDT", last_price: "4.25", change_24h: 0.80, volume: 29000 },
+            { symbol: "NEAR_USDT", name: "NEAR / USDT", last_price: "4.85", change_24h: 4.10, volume: 27000 },
+            { symbol: "BNB_USDT", name: "BNB / USDT", last_price: "575.00", change_24h: 0.90, volume: 25000 },
+            { symbol: "SUI_USDT", name: "SUI / USDT", last_price: "1.95", change_24h: 6.80, volume: 24000 },
+            { symbol: "PEPE_USDT", name: "PEPE / USDT", last_price: "0.0000095", change_24h: 8.20, volume: 23000 },
+            { symbol: "SHIB_USDT", name: "SHIB / USDT", last_price: "0.0000185", change_24h: 2.10, volume: 22000 },
+            { symbol: "LTC_USDT", name: "LTC / USDT", last_price: "68.20", change_24h: -0.50, volume: 21000 },
+            { symbol: "BCH_USDT", name: "BCH / USDT", last_price: "345.00", change_24h: 1.40, volume: 20000 },
+            { symbol: "UNI_USDT", name: "UNI / USDT", last_price: "7.40", change_24h: -1.20, volume: 19000 },
+            { symbol: "ATOM_USDT", name: "ATOM / USDT", last_price: "4.60", change_24h: 0.30, volume: 18000 },
+            { symbol: "ICP_USDT", name: "ICP / USDT", last_price: "8.10", change_24h: 1.80, volume: 17500 },
+            { symbol: "FIL_USDT", name: "FIL / USDT", last_price: "3.75", change_24h: -0.20, volume: 17000 },
+            { symbol: "ARB_USDT", name: "ARB / USDT", last_price: "0.55", change_24h: 1.50, volume: 16500 },
+            { symbol: "OP_USDT", name: "OP / USDT", last_price: "1.65", change_24h: 2.00, volume: 16000 },
+            { symbol: "APT_USDT", name: "APT / USDT", last_price: "9.20", change_24h: 4.50, volume: 15500 },
+            { symbol: "FTM_USDT", name: "FTM / USDT", last_price: "0.72", change_24h: 3.20, volume: 15000 },
+            { symbol: "TIA_USDT", name: "TIA / USDT", last_price: "5.40", change_24h: -1.10, volume: 14500 },
+            { symbol: "RENDER_USDT", name: "RENDER / USDT", last_price: "5.80", change_24h: 3.80, volume: 14000 },
+            { symbol: "INJ_USDT", name: "INJ / USDT", last_price: "21.50", change_24h: 2.60, volume: 13500 },
+            { symbol: "STX_USDT", name: "STX / USDT", last_price: "1.75", change_24h: 0.90, volume: 13000 },
+            { symbol: "FET_USDT", name: "FET / USDT", last_price: "1.35", change_24h: 4.80, volume: 12500 },
+            { symbol: "TAO_USDT", name: "TAO / USDT", last_price: "540.00", change_24h: 5.20, volume: 12000 },
+            { symbol: "WIF_USDT", name: "WIF / USDT", last_price: "2.45", change_24h: 7.10, volume: 11500 },
+            { symbol: "BONK_USDT", name: "BONK / USDT", last_price: "0.000022", change_24h: 3.90, volume: 11000 },
+            { symbol: "FLOKI_USDT", name: "FLOKI / USDT", last_price: "0.00015", change_24h: 4.20, volume: 10500 },
+            { symbol: "AAVE_USDT", name: "AAVE / USDT", last_price: "158.00", change_24h: 3.10, volume: 10000 },
+            { symbol: "CRV_USDT", name: "CRV / USDT", last_price: "0.28", change_24h: 0.50, volume: 9500 },
+            { symbol: "MKR_USDT", name: "MKR / USDT", last_price: "1280.00", change_24h: -0.60, volume: 9000 },
+            { symbol: "LDO_USDT", name: "LDO / USDT", last_price: "1.15", change_24h: 1.70, volume: 8500 },
+            { symbol: "GALA_USDT", name: "GALA / USDT", last_price: "0.022", change_24h: 2.40, volume: 8000 },
+            { symbol: "SAND_USDT", name: "SAND / USDT", last_price: "0.26", change_24h: 0.80, volume: 7500 },
+            { symbol: "MANA_USDT", name: "MANA / USDT", last_price: "0.29", change_24h: 1.10, volume: 7000 },
+            { symbol: "CHZ_USDT", name: "CHZ / USDT", last_price: "0.065", change_24h: 0.40, volume: 6500 },
+            { symbol: "AXS_USDT", name: "AXS / USDT", last_price: "4.85", change_24h: 1.30, volume: 6000 },
+            { symbol: "THETA_USDT", name: "THETA / USDT", last_price: "1.30", change_24h: 0.90, volume: 5500 },
+            { symbol: "ALGO_USDT", name: "ALGO / USDT", last_price: "0.12", change_24h: 0.70, volume: 5000 },
+            { symbol: "VET_USDT", name: "VET / USDT", last_price: "0.023", change_24h: 1.00, volume: 4800 },
+            { symbol: "XLM_USDT", name: "XLM / USDT", last_price: "0.095", change_24h: 0.60, volume: 4600 },
+            { symbol: "KAS_USDT", name: "KAS / USDT", last_price: "0.13", change_24h: 2.80, volume: 4400 },
+            { symbol: "BLUR_USDT", name: "BLUR / USDT", last_price: "0.24", change_24h: 1.50, volume: 4200 },
+            { symbol: "SEI_USDT", name: "SEI / USDT", last_price: "0.42", change_24h: 3.60, volume: 4000 },
+            { symbol: "JUP_USDT", name: "JUP / USDT", last_price: "0.95", change_24h: 4.10, volume: 3800 },
+            { symbol: "PYTH_USDT", name: "PYTH / USDT", last_price: "0.34", change_24h: 2.20, volume: 3600 },
+            { symbol: "WLD_USDT", name: "WLD / USDT", last_price: "2.10", change_24h: 5.40, volume: 3400 },
+            { symbol: "STRK_USDT", name: "STRK / USDT", last_price: "0.41", change_24h: 1.20, volume: 3200 },
+            { symbol: "DYDX_USDT", name: "DYDX / USDT", last_price: "1.05", change_24h: 0.80, volume: 3000 },
+            { symbol: "RUNE_USDT", name: "RUNE / USDT", last_price: "5.10", change_24h: 2.50, volume: 2900 },
+            { symbol: "ENS_USDT", name: "ENS / USDT", last_price: "17.20", change_24h: 3.30, volume: 2800 },
+            { symbol: "NOT_USDT", name: "NOT / USDT", last_price: "0.0078", change_24h: 6.20, volume: 2700 },
+            { symbol: "TON_USDT", name: "TON / USDT", last_price: "5.20", change_24h: 1.80, volume: 2600 }
         ];
-        this.markets = defaultMarkets;
-        this.populateCoinDropdown(defaultMarkets);
+
+        // 1. Check local storage cache for instant 100+ coin load
+        try {
+            const cached = localStorage.getItem('openchart_markets_cache');
+            if (cached) {
+                const parsed = JSON.parse(cached);
+                if (Array.isArray(parsed) && parsed.length > 10) {
+                    this.markets = parsed;
+                    this.populateCoinDropdown(parsed);
+                }
+            }
+        } catch(e) {}
+
+        if (!this.markets || !this.markets.length) {
+            this.markets = defaultMarkets;
+            this.populateCoinDropdown(defaultMarkets);
+        }
+
+        // 2. Fetch fresh 24hr tickers from Binance CORS API or local server non-blocking
+        try {
+            const bResp = await fetch('https://api.binance.com/api/v3/ticker/24hr');
+            if (bResp.ok) {
+                const rawList = await bResp.json();
+                if (Array.isArray(rawList) && rawList.length) {
+                    const usdtTickers = rawList
+                        .filter(t => t.symbol.endsWith('USDT') && !t.symbol.includes('UP') && !t.symbol.includes('DOWN'))
+                        .sort((a, b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume))
+                        .slice(0, 120);
+
+                    const liveMarkets = usdtTickers.map(t => {
+                        const base = t.symbol.replace('USDT', '');
+                        const p = parseFloat(t.lastPrice);
+                        return {
+                            symbol: `${base}_USDT`,
+                            name: `${base} / USDT`,
+                            last_price: p >= 1 ? p.toFixed(2) : (p >= 0.01 ? p.toFixed(4) : p.toFixed(6)),
+                            change_24h: parseFloat(t.priceChangePercent),
+                            volume: parseFloat(t.quoteVolume)
+                        };
+                    });
+
+                    if (liveMarkets.length > 20) {
+                        this.markets = liveMarkets;
+                        this.populateCoinDropdown(liveMarkets);
+                        try {
+                            localStorage.setItem('openchart_markets_cache', JSON.stringify(liveMarkets));
+                        } catch(e) {}
+                        return;
+                    }
+                }
+            }
+        } catch(e) {
+            // Offline or rate-limited; fallback list is already smoothly rendered!
+        }
     }
 
     populateCoinDropdown(marketList) {
         const coinSelect = document.getElementById('coin-select');
+        if (!coinSelect) return;
         const currentClean = (this.currentPair || 'BTC_USDT').replace('B-', '').replace('_', '').toUpperCase();
         coinSelect.innerHTML = marketList.slice(0, 150).map(m => {
             const symClean = (m.symbol || '').replace('B-', '').replace('_', '').toUpperCase();
@@ -1532,29 +1636,6 @@ class OpenChartApp {
             };
         } catch (err) {
             setTimeout(() => this.connectDirectBinanceWs(), 3000);
-        }
-    }
-
-    async handleRunReaAgent() {
-        const tool = document.getElementById('rea-tool-select').value;
-        const target = document.getElementById('rea-target-input').value;
-        const outputEl = document.getElementById('rea-output-text');
-
-        outputEl.textContent = `[REA Agent] Calling MCP tool "${tool}" with target: "${target}"...\nPlease wait...`;
-
-        try {
-            const resp = await fetch('/api/rea/analyze', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    tool_name: tool,
-                    args: { target: target }
-                })
-            });
-            const data = await resp.json();
-            outputEl.textContent = JSON.stringify(data, null, 2);
-        } catch (e) {
-            outputEl.textContent = `[REA Agent Error] ${e.message}`;
         }
     }
 }

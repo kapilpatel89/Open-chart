@@ -41,11 +41,13 @@ class OpenChart3D {
 
         // View State
         this.offsetX = 0;          // Horizontal scroll offset (pixels)
+        this.offsetY = 0;          // Vertical scroll offset (pixels for free 2D panning)
         this.candleWidth = this.options.candleWidth;
         this.candleGap = this.options.candleGap;
         this.priceRange = { min: 0, max: 1 };
         this.autoScale = true;
         this.userPriceZoom = 1.0;  // Price vertical scaling factor
+        this.jumpButtonRect = null; // Rect for floating live jump button
 
         // Interaction State
         this.isDraggingChart = false;
@@ -54,6 +56,7 @@ class OpenChart3D {
         this.dragStartX = 0;
         this.dragStartY = 0;
         this.initialOffsetX = 0;
+        this.initialOffsetY = 0;
         this.axisDragStartX = 0;
         this.axisDragStartY = 0;
         this.axisDragStartCandleWidth = this.candleWidth;
@@ -214,6 +217,7 @@ class OpenChart3D {
         const totalW = this.candles.length * (this.candleWidth + this.candleGap);
         const viewW = this.width - this.priceAxisWidth;
         this.offsetX = Math.max(0, totalW - viewW + 120);
+        this.offsetY = 0;
         this.userPriceZoom = 1.0;
         this.autoScale = true;
         this.render();
@@ -294,13 +298,14 @@ class OpenChart3D {
         const range = max - min || 1;
         const ratio = (price - min) / range;
         const chartH = Math.max(80, this.mainChartHeight || (this.height - 100));
-        return Math.max(5, Math.min(this.height, chartH - (ratio * chartH) + 15));
+        return chartH - (ratio * chartH) + 15 + this.offsetY;
     }
 
     yToPrice(y) {
         const { min, max } = this.priceRange;
         const range = max - min || 1;
-        const ratio = (this.mainChartHeight + 15 - y) / this.mainChartHeight;
+        const chartH = Math.max(80, this.mainChartHeight || (this.height - 100));
+        const ratio = (chartH + 15 + this.offsetY - y) / chartH;
         return min + (ratio * range);
     }
 
@@ -420,6 +425,72 @@ class OpenChart3D {
         } catch (e) {
             console.error("Axes render error:", e);
         }
+
+        // 13. Jump to Live Candle Floating Button (Bottom Right)
+        try {
+            this.drawJumpToLiveButton(ctx);
+        } catch (e) {
+            console.error("Jump to live button render error:", e);
+        }
+    }
+
+    isLiveCandleVisible() {
+        if (!this.candles || !this.candles.length) return true;
+        const lastIdx = this.candles.length - 1;
+        const lastX = this.candleToX(lastIdx);
+        const viewW = this.width - this.priceAxisWidth;
+        const xVisible = (lastX >= 25 && lastX <= viewW - 25);
+        const yCentered = Math.abs(this.offsetY) < 50;
+        return xVisible && yCentered;
+    }
+
+    drawJumpToLiveButton(ctx) {
+        if (this.isLiveCandleVisible()) {
+            this.jumpButtonRect = null;
+            return;
+        }
+
+        const viewW = this.width - this.priceAxisWidth;
+        const bottomY = this.height - this.timeAxisHeight;
+        const btnX = viewW - 36;
+        const btnY = bottomY - 36;
+        const r = 18;
+        this.jumpButtonRect = { x: btnX, y: btnY, r: r };
+
+        ctx.save();
+        // Outer glowing shadow
+        ctx.shadowColor = 'rgba(0, 240, 255, 0.45)';
+        ctx.shadowBlur = 12;
+
+        // Button background
+        ctx.fillStyle = '#0a101d';
+        ctx.strokeStyle = '#00f0ff';
+        ctx.lineWidth = 1.8;
+        ctx.beginPath();
+        ctx.arc(btnX, btnY, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        // Right arrow icon (➜)
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = '#00f0ff';
+        ctx.font = 'bold 16px Inter, "Segoe UI", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('➜', btnX + 1, btnY);
+
+        ctx.restore();
+    }
+
+    centerOnLiveCandle() {
+        if (!this.candles || !this.candles.length) return;
+        const totalW = this.candles.length * (this.candleWidth + this.candleGap);
+        const viewW = this.width - this.priceAxisWidth;
+        this.offsetX = Math.max(0, totalW - (viewW * 0.70));
+        this.offsetY = 0;
+        this.userPriceZoom = 1.0;
+        this.autoScale = true;
+        this.render();
     }
 
     drawBackground(ctx) {
@@ -1526,6 +1597,15 @@ class OpenChart3D {
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
 
+        // 0. Check if user clicked on Jump to Live Candle Button
+        if (this.jumpButtonRect && !this.isLiveCandleVisible()) {
+            const dist = Math.hypot(x - this.jumpButtonRect.x, y - this.jumpButtonRect.y);
+            if (dist <= this.jumpButtonRect.r + 4) {
+                this.centerOnLiveCandle();
+                return;
+            }
+        }
+
         // 1. Check if user clicked on BOTTOM TIMELINE AXIS -> Drag to scale candle width / time
         if (y >= this.height - this.timeAxisHeight) {
             this.isDraggingTimeAxis = true;
@@ -1565,11 +1645,12 @@ class OpenChart3D {
             return;
         }
 
-        // 5. Default Chart Panning
+        // 5. Default Chart Panning (Free 2D Movement)
         this.isDraggingChart = true;
         this.dragStartX = x;
         this.dragStartY = y;
         this.initialOffsetX = this.offsetX;
+        this.initialOffsetY = this.offsetY;
         this.canvas.style.cursor = 'grabbing';
     }
 
@@ -1679,12 +1760,24 @@ class OpenChart3D {
             return;
         }
 
-        // 5. Chart Panning
+        // 5. Chart Panning (Free 2D Movement)
         if (this.isDraggingChart) {
             const deltaX = this.dragStartX - this.mousePos.x;
+            const deltaY = this.mousePos.y - this.dragStartY;
             this.offsetX = Math.max(0, this.initialOffsetX + deltaX);
+            this.offsetY = this.initialOffsetY + deltaY;
+            this.autoScale = false;
             this.render();
             return;
+        }
+
+        // Hover over Jump to Live Candle Button
+        if (this.jumpButtonRect && !this.isLiveCandleVisible()) {
+            const dist = Math.hypot(this.mousePos.x - this.jumpButtonRect.x, this.mousePos.y - this.jumpButtonRect.y);
+            if (dist <= this.jumpButtonRect.r + 4) {
+                this.canvas.style.cursor = 'pointer';
+                return;
+            }
         }
 
         // Cursor Styling
@@ -1749,9 +1842,10 @@ class OpenChart3D {
             return;
         }
 
-        // Double-click on price axis -> reset vertical price zoom
+        // Double-click on price axis -> reset vertical price zoom & offset
         if (x >= this.width - this.priceAxisWidth) {
             this.userPriceZoom = 1.0;
+            this.offsetY = 0;
             this.autoScale = true;
             this.render();
             return;

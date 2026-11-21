@@ -71,6 +71,31 @@ if (close < lowestLow[1])
 `
 };
 
+const PINE_COLOR_MAP = {
+    'color.red': '#f23645',
+    'color.green': '#089981',
+    'color.blue': '#2962ff',
+    'color.yellow': '#fbc02d',
+    'color.orange': '#ff9800',
+    'color.purple': '#ab47bc',
+    'color.white': '#ffffff',
+    'color.black': '#000000',
+    'color.gray': '#787b86',
+    'color.aqua': '#00f0ff',
+    'color.lime': '#00e676',
+    'color.teal': '#00897b',
+    'color.maroon': '#880e4f',
+    'color.navy': '#1a237e',
+    'red': '#f23645',
+    'green': '#089981',
+    'blue': '#2962ff',
+    'yellow': '#fbc02d',
+    'orange': '#ff9800',
+    'purple': '#ab47bc',
+    'white': '#ffffff',
+    'black': '#000000'
+};
+
 /**
  * Client-Side Pine Script v5 Compiler & Strategy Backtesting Engine
  * 100% Pure JavaScript: Executes offline, on GitHub Pages, and in-browser in 1ms.
@@ -189,9 +214,9 @@ class ClientPineEngine {
         return { supertrend, direction };
     }
 
-    static executeScript(code, candles) {
+    static executeScript(code, candles, customInputs = {}, customStyles = {}) {
         if (!candles || !candles.length) {
-            return { error: "Candles dataset is empty", plots: [], signals: [], metrics: {} };
+            return { error: "Candles dataset is empty", plots: [], signals: [], metrics: {}, inputs: {} };
         }
         const n = candles.length;
         const times = candles.map(c => c.time);
@@ -201,6 +226,10 @@ class ClientPineEngine {
         const closes = candles.map(c => c.close);
         const volumes = candles.map(c => c.volume);
 
+        let scriptTitle = "Pine Script Indicator";
+        const metaMatch = code.match(/(?:indicator|strategy)\(\s*["']([^"']+)["']/);
+        if (metaMatch) scriptTitle = metaMatch[1];
+
         const env = {
             open: opens, high: highs, low: lows, close: closes, volume: volumes,
             hl2: highs.map((h, i) => (h + lows[i]) / 2),
@@ -208,11 +237,22 @@ class ClientPineEngine {
             ohlc4: opens.map((o, i) => (o + highs[i] + lows[i] + closes[i]) / 4)
         };
 
+        const inputs = {};
         const plots = [];
         const strategyEntries = [];
         const lines = code.split('\n');
 
         let currentIfCond = null;
+
+        const resolvePeriod = (rawArg, fallback) => {
+            if (!rawArg) return fallback;
+            const trimmed = rawArg.trim();
+            if (env[trimmed] !== undefined && typeof env[trimmed] === 'number') {
+                return env[trimmed];
+            }
+            const p = parseInt(trimmed);
+            return (!isNaN(p) && p > 0) ? p : fallback;
+        };
 
         for (let idx = 0; idx < lines.length; idx++) {
             const rawLine = lines[idx];
@@ -267,29 +307,54 @@ class ClientPineEngine {
                 const varName = varNameRaw.trim();
                 const expr = exprRaw.trim();
 
+                // 1. input.* calls: input.int(10, title="Lookback Period") or input.float or input(...)
+                if (expr.startsWith('input')) {
+                    const m = expr.match(/input(?:\.[a-zA-Z]+)?\(\s*([^,)]+)(?:,\s*(?:title\s*=\s*)?["']([^"']+)["'])?/);
+                    let defVal = m ? m[1].trim() : '10';
+                    let inputTitle = (m && m[2]) ? m[2].trim() : varName;
+                    let parsedVal = parseFloat(defVal);
+                    let inputType = 'int';
+                    if (isNaN(parsedVal)) {
+                        if (defVal.toLowerCase() === 'true') { parsedVal = true; inputType = 'bool'; }
+                        else if (defVal.toLowerCase() === 'false') { parsedVal = false; inputType = 'bool'; }
+                        else { parsedVal = defVal.replace(/['"]/g, ''); inputType = 'string'; }
+                    } else {
+                        inputType = Number.isInteger(parsedVal) ? 'int' : 'float';
+                    }
+
+                    // User customization override from settings modal
+                    if (customInputs && customInputs[varName] !== undefined) {
+                        parsedVal = customInputs[varName];
+                    }
+
+                    inputs[varName] = { id: varName, title: inputTitle, value: parsedVal, type: inputType, defVal: defVal };
+                    env[varName] = parsedVal;
+                    continue;
+                }
+
                 if (expr.startsWith('ta.ema')) {
                     const args = expr.match(/\((.*)\)/)?.[1]?.split(',') || [];
                     const src = env[args[0]?.trim()] || closes;
-                    const period = parseInt(args[1]?.trim()) || 9;
+                    const period = resolvePeriod(args[1], 9);
                     env[varName] = this.calculateEMA(src, period);
                 } else if (expr.startsWith('ta.sma')) {
                     const args = expr.match(/\((.*)\)/)?.[1]?.split(',') || [];
                     const src = env[args[0]?.trim()] || closes;
-                    const period = parseInt(args[1]?.trim()) || 20;
+                    const period = resolvePeriod(args[1], 20);
                     env[varName] = this.calculateSMA(src, period);
                 } else if (expr.startsWith('ta.rsi')) {
                     const args = expr.match(/\((.*)\)/)?.[1]?.split(',') || [];
                     const src = env[args[0]?.trim()] || closes;
-                    const period = parseInt(args[1]?.trim()) || 14;
+                    const period = resolvePeriod(args[1], 14);
                     env[varName] = this.calculateRSI(src, period);
                 } else if (expr.startsWith('ta.atr')) {
                     const args = expr.match(/\((.*)\)/)?.[1]?.split(',') || [];
-                    const period = parseInt(args[0]?.trim()) || 14;
+                    const period = resolvePeriod(args[0], 14);
                     env[varName] = this.calculateATR(highs, lows, closes, period);
                 } else if (expr.startsWith('ta.highest')) {
                     const args = expr.match(/\((.*)\)/)?.[1]?.split(',') || [];
                     const src = env[args[0]?.trim()] || highs;
-                    const period = parseInt(args[1]?.trim()) || 20;
+                    const period = resolvePeriod(args[1], 20);
                     const res = new Array(n).fill(null);
                     for (let i = period - 1; i < n; i++) {
                         let maxV = -Infinity;
@@ -300,7 +365,7 @@ class ClientPineEngine {
                 } else if (expr.startsWith('ta.lowest')) {
                     const args = expr.match(/\((.*)\)/)?.[1]?.split(',') || [];
                     const src = env[args[0]?.trim()] || lows;
-                    const period = parseInt(args[1]?.trim()) || 20;
+                    const period = resolvePeriod(args[1], 20);
                     const res = new Array(n).fill(null);
                     for (let i = period - 1; i < n; i++) {
                         let minV = Infinity;
@@ -318,21 +383,36 @@ class ClientPineEngine {
             if (line.startsWith('plot(') || line.startsWith('plot ')) {
                 const argsMatch = line.match(/plot\((.*)\)/);
                 if (argsMatch) {
-                    const args = argsMatch[1].split(',');
-                    const seriesName = args[0]?.trim();
-                    const titleMatch = line.match(/["']([^"']+)["']/);
+                    const inner = argsMatch[1];
+                    const firstComma = inner.indexOf(',');
+                    const seriesName = (firstComma > -1 ? inner.substring(0, firstComma) : inner).trim();
+                    const titleMatch = line.match(/title\s*=\s*["']([^"']+)["']/) || line.match(/["']([^"']+)["']/);
                     const title = titleMatch ? titleMatch[1] : seriesName;
-                    const colorMatch = line.match(/color\s*=\s*(#[a-fA-F0-9]{3,8}|[a-zA-Z]+)/);
-                    const color = colorMatch ? colorMatch[1] : (plots.length === 0 ? '#00f0ff' : '#ffaa00');
+
+                    const colorParamMatch = line.match(/color\s*=\s*([a-zA-Z0-9_\.#]+)/);
+                    let rawColor = colorParamMatch ? colorParamMatch[1].trim() : '';
+                    let color = PINE_COLOR_MAP[rawColor] || rawColor || (plots.length === 0 ? '#f23645' : '#089981');
+
                     const lwMatch = line.match(/linewidth\s*=\s*(\d+)/);
-                    const linewidth = lwMatch ? parseInt(lwMatch[1]) : 2;
+                    let linewidth = lwMatch ? parseInt(lwMatch[1]) : 2;
+
+                    // Custom style overrides from Settings modal
+                    let isVisible = true;
+                    if (customStyles && customStyles[title]) {
+                        if (customStyles[title].color) color = customStyles[title].color;
+                        if (customStyles[title].linewidth) linewidth = customStyles[title].linewidth;
+                        if (customStyles[title].visible !== undefined) isVisible = customStyles[title].visible;
+                    }
 
                     const dataSeries = env[seriesName];
-                    if (dataSeries && Array.isArray(dataSeries)) {
+                    if (dataSeries && Array.isArray(dataSeries) && isVisible) {
                         plots.push({
+                            id: seriesName,
                             title: title,
+                            rawTitle: title,
                             color: color,
                             linewidth: linewidth,
+                            visible: isVisible,
                             pane: 'main',
                             data: times.map((t, i) => ({ time: t, value: dataSeries[i] })).filter(d => d.value !== null && isFinite(d.value))
                         });
@@ -400,7 +480,9 @@ class ClientPineEngine {
         const netProfitPct = Math.round(((equity - initEquity) / initEquity) * 10000) / 100;
 
         return {
+            scriptTitle,
             plots,
+            inputs,
             signals,
             trades: trades.slice(0, 40),
             metrics: {
@@ -497,6 +579,8 @@ class PineScriptIDE {
         this.autoTradeEnabled = false;
         this.currentResults = null;
         this.currentDiagnostic = null;
+        this.customInputs = {};
+        this.customStyles = {};
 
         this.init();
     }
@@ -752,13 +836,14 @@ if (shortCondition)
         let clientSuccess = false;
         if (candles && candles.length) {
             try {
-                const clientResult = ClientPineEngine.executeScript(code, candles);
+                const clientResult = ClientPineEngine.executeScript(code, candles, this.customInputs, this.customStyles);
                 if (clientResult && !clientResult.error) {
                     this.currentResults = clientResult;
                     if (this.chart) {
                         if (clientResult.plots) this.chart.setIndicators(clientResult.plots);
                         if (clientResult.signals) this.chart.setSignals(clientResult.signals);
                     }
+                    this.renderIndicatorLegend(clientResult);
                     this.updateBacktestUI(clientResult.metrics, clientResult.trades);
                     clientSuccess = true;
                 }
@@ -863,5 +948,214 @@ if (shortCondition)
                 </div>
             `).join('');
         }
+    }
+
+    renderIndicatorLegend(result) {
+        let legendEl = document.getElementById('indicator-legend-overlay');
+        if (!legendEl) {
+            legendEl = document.createElement('div');
+            legendEl.id = 'indicator-legend-overlay';
+            legendEl.className = 'indicator-legend-overlay';
+            const container = document.getElementById('chart-container');
+            if (container) container.appendChild(legendEl);
+        }
+
+        if (!result || (!result.plots || !result.plots.length)) {
+            legendEl.innerHTML = '';
+            return;
+        }
+
+        const title = result.scriptTitle || 'Pine Script Indicator';
+        legendEl.innerHTML = `
+            <div class="ind-badge-item">
+                <span class="ind-badge-dot"></span>
+                <span class="ind-badge-name">${title}</span>
+                <button class="ind-badge-action-btn" id="btn-ind-gear" title="Advanced Indicator Settings (Inputs & Colors)">⚙</button>
+                <button class="ind-badge-action-btn" id="btn-ind-toggle" title="Toggle Visibility">👁</button>
+            </div>
+        `;
+
+        document.getElementById('btn-ind-gear')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.openSettingsModal(result);
+        });
+
+        document.getElementById('btn-ind-toggle')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const btn = e.currentTarget;
+            this.indicatorVisible = this.indicatorVisible === false ? true : false;
+            btn.textContent = this.indicatorVisible ? '👁' : '🚫';
+            if (this.chart) {
+                this.chart.setIndicators(this.indicatorVisible ? (this.currentResults?.plots || []) : []);
+            }
+        });
+    }
+
+    openSettingsModal(result) {
+        let modalEl = document.getElementById('indicator-settings-modal');
+        if (!modalEl) {
+            modalEl = document.createElement('div');
+            modalEl.id = 'indicator-settings-modal';
+            modalEl.className = 'indicator-settings-modal';
+            document.body.appendChild(modalEl);
+        }
+
+        const scriptTitle = result.scriptTitle || 'Indicator';
+        const inputs = result.inputs || {};
+        const plots = result.plots || [];
+
+        // Build Inputs HTML
+        let inputsHtml = '';
+        const inputKeys = Object.keys(inputs);
+        if (inputKeys.length === 0) {
+            inputsHtml = '<div class="settings-empty">No configurable inputs declared in this script.</div>';
+        } else {
+            inputsHtml = inputKeys.map(k => {
+                const inp = inputs[k];
+                const curVal = this.customInputs[k] !== undefined ? this.customInputs[k] : inp.value;
+                if (inp.type === 'bool') {
+                    return `
+                        <div class="settings-row">
+                            <label>${inp.title || k}</label>
+                            <input type="checkbox" id="modal-inp-${k}" ${curVal ? 'checked' : ''}>
+                        </div>
+                    `;
+                }
+                return `
+                    <div class="settings-row">
+                        <label>${inp.title || k}</label>
+                        <input type="number" id="modal-inp-${k}" value="${curVal}" step="${inp.type === 'float' ? '0.1' : '1'}">
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Build Style HTML (Plots, Colors, Linewidths)
+        let styleHtml = '';
+        if (plots.length === 0) {
+            styleHtml = '<div class="settings-empty">No plot lines generated.</div>';
+        } else {
+            styleHtml = plots.map((p, idx) => {
+                const pTitle = p.rawTitle || p.title || `Plot ${idx + 1}`;
+                const curStyle = this.customStyles[pTitle] || {};
+                const curColor = curStyle.color || p.color || '#00f0ff';
+                const curWidth = curStyle.linewidth || p.linewidth || 2;
+                const isVis = curStyle.visible !== false;
+
+                return `
+                    <div class="settings-plot-box">
+                        <div class="settings-plot-header">
+                            <label class="settings-checkbox-label">
+                                <input type="checkbox" id="modal-style-vis-${idx}" ${isVis ? 'checked' : ''}>
+                                <b>${pTitle}</b>
+                            </label>
+                        </div>
+                        <div class="settings-plot-controls">
+                            <div class="settings-ctrl-group">
+                                <span>Color:</span>
+                                <input type="color" id="modal-style-col-${idx}" value="${curColor.startsWith('#') ? curColor : '#00f0ff'}">
+                            </div>
+                            <div class="settings-ctrl-group">
+                                <span>Line Width:</span>
+                                <select id="modal-style-lw-${idx}">
+                                    <option value="1" ${curWidth == 1 ? 'selected' : ''}>1px Thin</option>
+                                    <option value="2" ${curWidth == 2 ? 'selected' : ''}>2px Medium</option>
+                                    <option value="3" ${curWidth == 3 ? 'selected' : ''}>3px Thick</option>
+                                    <option value="4" ${curWidth == 4 ? 'selected' : ''}>4px Bold</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        modalEl.innerHTML = `
+            <div class="settings-modal-backdrop"></div>
+            <div class="settings-modal-card">
+                <div class="settings-modal-header">
+                    <div class="settings-header-left">
+                        <span class="settings-icon">⚙</span>
+                        <h3>${scriptTitle} Settings</h3>
+                    </div>
+                    <button class="settings-close-btn" id="btn-close-settings-modal">✕</button>
+                </div>
+                <div class="settings-modal-tabs">
+                    <button class="settings-tab-btn active" data-stab="stab-inputs">Inputs</button>
+                    <button class="settings-tab-btn" data-stab="stab-style">Style</button>
+                </div>
+                <div class="settings-modal-body">
+                    <div id="stab-inputs" class="settings-tab-content active">
+                        ${inputsHtml}
+                    </div>
+                    <div id="stab-style" class="settings-tab-content">
+                        ${styleHtml}
+                    </div>
+                </div>
+                <div class="settings-modal-footer">
+                    <button class="btn-secondary" id="btn-reset-ind-settings">Reset Defaults</button>
+                    <div class="footer-right">
+                        <button class="btn-secondary" id="btn-cancel-ind-settings">Cancel</button>
+                        <button class="btn-primary" id="btn-apply-ind-settings">Apply Changes</button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        modalEl.classList.add('show');
+
+        // Tab Switching
+        modalEl.querySelectorAll('.settings-tab-btn').forEach(tb => {
+            tb.addEventListener('click', () => {
+                modalEl.querySelectorAll('.settings-tab-btn').forEach(b => b.classList.remove('active'));
+                modalEl.querySelectorAll('.settings-tab-content').forEach(c => c.classList.remove('active'));
+                tb.classList.add('active');
+                modalEl.querySelector(`#${tb.dataset.stab}`)?.classList.add('active');
+            });
+        });
+
+        const closeModal = () => modalEl.classList.remove('show');
+        modalEl.querySelector('#btn-close-settings-modal')?.addEventListener('click', closeModal);
+        modalEl.querySelector('#btn-cancel-ind-settings')?.addEventListener('click', closeModal);
+        modalEl.querySelector('.settings-modal-backdrop')?.addEventListener('click', closeModal);
+
+        modalEl.querySelector('#btn-reset-ind-settings')?.addEventListener('click', () => {
+            this.customInputs = {};
+            this.customStyles = {};
+            closeModal();
+            this.executeScript();
+        });
+
+        modalEl.querySelector('#btn-apply-ind-settings')?.addEventListener('click', () => {
+            // Collect Inputs
+            inputKeys.forEach(k => {
+                const el = modalEl.querySelector(`#modal-inp-${k}`);
+                if (el) {
+                    if (el.type === 'checkbox') {
+                        this.customInputs[k] = el.checked;
+                    } else {
+                        const val = parseFloat(el.value);
+                        this.customInputs[k] = isNaN(val) ? el.value : val;
+                    }
+                }
+            });
+
+            // Collect Styles
+            plots.forEach((p, idx) => {
+                const pTitle = p.rawTitle || p.title || `Plot ${idx + 1}`;
+                const colEl = modalEl.querySelector(`#modal-style-col-${idx}`);
+                const lwEl = modalEl.querySelector(`#modal-style-lw-${idx}`);
+                const visEl = modalEl.querySelector(`#modal-style-vis-${idx}`);
+
+                this.customStyles[pTitle] = {
+                    color: colEl ? colEl.value : p.color,
+                    linewidth: lwEl ? parseInt(lwEl.value) : p.linewidth,
+                    visible: visEl ? visEl.checked : true
+                };
+            });
+
+            closeModal();
+            this.executeScript();
+        });
     }
 }

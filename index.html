@@ -99,11 +99,8 @@
                 <button id="btn-toggle-pine" class="btn-secondary" title="Open Pine Script v5 IDE">
                     <span>⚡ Pine Script v5 IDE</span>
                 </button>
-                <button id="btn-toggle-order" class="btn-secondary">
+                <button id="btn-toggle-order" class="btn-secondary" title="Toggle Order Entry & Depth Panel">
                     <span>📝 Trade Panel</span>
-                </button>
-                <button id="btn-toggle-rea" class="btn-secondary rea-btn">
-                    <span>🔍 REA Agent</span>
                 </button>
                 
                 <!-- Account Balance Pill -->
@@ -177,12 +174,14 @@
                 </div>
             </div>
 
-            <!-- Right Trading & Orderbook Sidebar -->
-            <aside class="sidebar" id="sidebar">
-                <div class="sidebar-tabs">
-                    <button class="tab-btn active" data-tab="tab-trade">Order Entry</button>
-                    <button class="tab-btn" data-tab="tab-orderbook">Order Book</button>
-                    <button class="tab-btn" data-tab="tab-rea">REA Inspector</button>
+            <!-- Right Trading & Orderbook Sidebar (Hideable / Floating) -->
+            <aside class="sidebar hidden" id="sidebar">
+                <div class="sidebar-header-bar">
+                    <div class="sidebar-tabs">
+                        <button class="tab-btn active" data-tab="tab-trade">Order Entry</button>
+                        <button class="tab-btn" data-tab="tab-orderbook">Order Book</button>
+                    </div>
+                    <button id="btn-close-sidebar" class="sidebar-close-btn" title="Close Panel">✕</button>
                 </div>
 
                 <!-- TAB 1: ORDER ENTRY -->
@@ -263,33 +262,6 @@
                             <span class="spread-tag">CoinDCX Live Depth</span>
                         </div>
                         <div id="ob-bids" class="ob-ladder bids"></div>
-                    </div>
-                </div>
-
-                <!-- TAB 3: REA AGENT REVERSE ENGINEERING -->
-                <div id="tab-rea" class="tab-content">
-                    <div class="rea-panel">
-                        <h3>🔍 REA Reverse Engineering Agent</h3>
-                        <p class="rea-desc">Integrated with <code>morluto/rea</code> MCP Server to inspect indicators, decompile algorithms, and audit trading models.</p>
-                        
-                        <div class="form-group">
-                            <label>Tool Selection</label>
-                            <select id="rea-tool-select">
-                                <option value="inspect_native_load_image">inspect_native_load_image (Binary Headers)</option>
-                                <option value="analyze_javascript_application">analyze_javascript_application (Frontend App/ASAR)</option>
-                                <option value="inspect_native_instruction">inspect_native_instruction (Disassembly)</option>
-                                <option value="resolve_native_call_targets">resolve_native_call_targets (Call Graph)</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label>Target Argument / Path</label>
-                            <input type="text" id="rea-target-input" value="C:/Windows/notepad.exe">
-                        </div>
-                        <button id="btn-run-rea" class="btn-primary">Execute REA Agent</button>
-                        
-                        <div class="rea-output-box">
-                            <pre id="rea-output-text">// REA Agent MCP Output will appear here...</pre>
-                        </div>
                     </div>
                 </div>
             </aside>
