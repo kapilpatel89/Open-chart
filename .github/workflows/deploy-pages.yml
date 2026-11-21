@@ -2,11 +2,11 @@ name: Deploy Open Chart to GitHub Pages
 
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "gh-pages"]
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -15,7 +15,25 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # 1. When changes are pushed to main, automatically sync and push to gh-pages branch
+  sync-to-gh-pages:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Deploy to gh-pages branch
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          branch: gh-pages
+          folder: .
+
+  # 2. Deploy to GitHub Pages environment (runs on gh-pages branch to satisfy environment protection rules)
   deploy:
+    if: github.ref == 'refs/heads/gh-pages'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
