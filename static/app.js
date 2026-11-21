@@ -9,13 +9,20 @@ class OpenChartApp {
     constructor() {
         this.currentPair = 'B-BTC_USDT';
         this.currentInterval = '1h';
+        this.currentCandleStyle = 'normal';
+        this.currentLayout = '1';
+        this.panes = new Map();
+        this.activePaneId = 0;
         this.ws = null;
+        this.binanceWs = null;
         this.chart = null;
         this.pineIDE = null;
         this.portfolio = null;
         this.markets = [];
         this.activeContextPrice = 0;
         this.candleCache = new Map();
+        this.lastBinanceTickTime = 0;
+        this.watchdogInterval = null;
 
         // Order Form State
         this.orderType = 'market';
@@ -29,18 +36,30 @@ class OpenChartApp {
         window.currentPair = this.currentPair;
         window.currentInterval = this.currentInterval;
 
-        // 1. Initialize 3D Candlestick Chart
-        this.chart = new OpenChart3D('chart-canvas');
+        // 1. Initialize Main Candlestick Chart (Pane 0)
+        this.chart = new OpenChart3D('chart-canvas', { candleStyle: this.currentCandleStyle, timeframe: this.currentInterval });
         
-        // Connect interactive order drag callback
         this.chart.onOrderUpdate = (itemId, newTp, newSl) => {
             this.updateOrderTpSl(itemId, newTp, newSl);
         };
 
-        // Connect right-click context menu
         this.chart.onContextMenuRequest = (clientX, clientY, price) => {
             this.showContextMenu(clientX, clientY, price);
         };
+
+        // Register Pane 0
+        this.panes.set(0, {
+            id: 0,
+            pair: this.currentPair,
+            interval: this.currentInterval,
+            chart: this.chart
+        });
+
+        // Click on pane 0 activates it
+        const pane0El = document.getElementById('pane-0');
+        if (pane0El) {
+            pane0El.addEventListener('click', () => this.setActivePane(0));
+        }
 
         // 2. Initialize Pine Script IDE
         this.pineIDE = new PineScriptIDE('pine-code-editor', this.chart);
@@ -56,6 +75,7 @@ class OpenChartApp {
 
         // 5. Connect Real-time WebSocket
         this.connectWebSocket();
+        this.startWatchdog();
 
         // 6. Run default Pine Script
         setTimeout(() => {
@@ -134,13 +154,59 @@ class OpenChartApp {
         // Indicators Dropdown Menu Toggle
         const indBtn = document.getElementById('btn-indicators-menu');
         const indDropdown = document.getElementById('indicators-dropdown');
-        indBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            indDropdown.classList.toggle('show');
-        });
+        if (indBtn && indDropdown) {
+            indBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                indDropdown.classList.toggle('show');
+                candleDropdown?.classList.remove('show');
+                layoutDropdown?.classList.remove('show');
+            });
+        }
+
+        // Candle Style Dropdown Menu Toggle
+        const candleBtn = document.getElementById('btn-candle-style-menu');
+        const candleDropdown = document.getElementById('candle-style-dropdown');
+        if (candleBtn && candleDropdown) {
+            candleBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                candleDropdown.classList.toggle('show');
+                indDropdown?.classList.remove('show');
+                layoutDropdown?.classList.remove('show');
+            });
+
+            document.querySelectorAll('#candle-style-dropdown .dropdown-item').forEach(item => {
+                item.addEventListener('click', (e) => {
+                    const style = item.dataset.style;
+                    this.setCandleStyle(style);
+                    candleDropdown.classList.remove('show');
+                });
+            });
+        }
+
+        // Multi-Chart Layout Dropdown Menu Toggle
+        const layoutBtn = document.getElementById('btn-layout-menu');
+        const layoutDropdown = document.getElementById('layout-dropdown');
+        if (layoutBtn && layoutDropdown) {
+            layoutBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                layoutDropdown.classList.toggle('show');
+                indDropdown?.classList.remove('show');
+                candleDropdown?.classList.remove('show');
+            });
+
+            document.querySelectorAll('#layout-dropdown .dropdown-item').forEach(item => {
+                item.addEventListener('click', (e) => {
+                    const layout = item.dataset.layout;
+                    this.setLayout(layout);
+                    layoutDropdown.classList.remove('show');
+                });
+            });
+        }
 
         window.addEventListener('click', () => {
-            indDropdown.classList.remove('show');
+            if (indDropdown) indDropdown.classList.remove('show');
+            if (candleDropdown) candleDropdown.classList.remove('show');
+            if (layoutDropdown) layoutDropdown.classList.remove('show');
             this.hideContextMenu();
         });
 
@@ -987,6 +1053,369 @@ class OpenChartApp {
         midPriceEl.textContent = `$${curPrice.toFixed(2)}`;
     }
 
+
+    setCandleStyle(style) {
+        if (!style) return;
+        this.currentCandleStyle = style;
+        
+        // Update all pane charts
+        this.panes.forEach(p => {
+            if (p.chart && p.chart.setCandleStyle) {
+                p.chart.setCandleStyle(style);
+            }
+        });
+
+        // Update UI pill label
+        const labelEl = document.getElementById('selected-candle-style');
+        if (labelEl) {
+            if (style === 'hollow') labelEl.innerHTML = '⚪ Hollow ▾';
+            else if (style === '3d') labelEl.innerHTML = '◈ 3D ▾';
+            else labelEl.innerHTML = '🕯 Normal ▾';
+        }
+
+        document.querySelectorAll('#candle-style-dropdown .dropdown-item').forEach(el => {
+            el.classList.toggle('active', el.dataset.style === style);
+        });
+    }
+
+    setLayout(layout) {
+        if (!layout) return;
+        this.currentLayout = layout;
+
+        const grid = document.getElementById('multi-chart-grid');
+        if (!grid) return;
+
+        grid.className = `multi-chart-grid layout-${layout}`;
+
+        // Determine which pane IDs should be active
+        let targetPaneIds = [0];
+        if (layout === '2h' || layout === '2v') {
+            targetPaneIds = [0, 1];
+        } else if (layout === '4') {
+            targetPaneIds = [0, 1, 2, 3];
+        }
+
+        // Update dropdown label & active class
+        const labelMap = { '1': '◫ Layout (1) ▾', '2h': '❚❚ 2 Split (H) ▾', '2v': '〓 2 Stack (V) ▾', '4': '▦ 4 Quad ▾' };
+        const lblEl = document.getElementById('selected-layout-label');
+        if (lblEl) lblEl.textContent = labelMap[layout] || '◫ Layout ▾';
+
+        document.querySelectorAll('#layout-dropdown .dropdown-item').forEach(item => {
+            item.classList.toggle('active', item.dataset.layout === layout);
+        });
+
+        // Default coins for multi-panes
+        const defaultPairs = {
+            0: this.currentPair || 'B-BTC_USDT',
+            1: 'B-ETH_USDT',
+            2: 'B-SOL_USDT',
+            3: 'B-XRP_USDT'
+        };
+
+        // Create or show target panes
+        targetPaneIds.forEach(id => {
+            let paneEl = document.getElementById(`pane-${id}`);
+            if (!paneEl) {
+                paneEl = document.createElement('div');
+                paneEl.className = 'chart-pane';
+                paneEl.id = `pane-${id}`;
+                paneEl.dataset.paneId = id;
+
+                const defaultPair = defaultPairs[id] || 'B-BTC_USDT';
+                const defaultTf = id === 0 ? this.currentInterval : (id === 1 ? '15m' : (id === 2 ? '5m' : '4h'));
+
+                // Header Overlay with Coin & Timeframe Selectors
+                paneEl.innerHTML = `
+                    <div class="pane-header-overlay">
+                        <span class="pane-active-dot"></span>
+                        <select class="pane-coin-badge" id="pane-coin-${id}"></select>
+                        <select class="pane-tf-select" id="pane-tf-${id}">
+                            <option value="1m" ${defaultTf === '1m' ? 'selected' : ''}>1m</option>
+                            <option value="5m" ${defaultTf === '5m' ? 'selected' : ''}>5m</option>
+                            <option value="15m" ${defaultTf === '15m' ? 'selected' : ''}>15m</option>
+                            <option value="1h" ${defaultTf === '1h' ? 'selected' : ''}>1H</option>
+                            <option value="4h" ${defaultTf === '4h' ? 'selected' : ''}>4H</option>
+                            <option value="1d" ${defaultTf === '1d' ? 'selected' : ''}>1D</option>
+                        </select>
+                        <button class="pane-action-btn" title="Auto Scale">⟲</button>
+                    </div>
+                    <canvas id="chart-canvas-${id}"></canvas>
+                `;
+
+                grid.appendChild(paneEl);
+
+                // Populate Coin Selector
+                const selectEl = paneEl.querySelector('.pane-coin-badge');
+                if (selectEl && this.markets.length) {
+                    selectEl.innerHTML = this.markets.slice(0, 100).map(m => `
+                        <option value="${m.symbol}" ${m.symbol === defaultPair ? 'selected' : ''}>${m.name}</option>
+                    `).join('');
+                }
+
+                // Initialize OpenChart3D instance for this pane
+                const canvasEl = document.getElementById(`chart-canvas-${id}`);
+                const paneChart = new OpenChart3D(canvasEl, {
+                    candleStyle: this.currentCandleStyle,
+                    timeframe: defaultTf
+                });
+
+                this.panes.set(id, {
+                    id: id,
+                    pair: defaultPair,
+                    interval: defaultTf,
+                    chart: paneChart
+                });
+
+                // Bind events for this pane
+                paneEl.addEventListener('click', () => this.setActivePane(id));
+                selectEl.addEventListener('change', (e) => {
+                    const p = this.panes.get(id);
+                    if (p) {
+                        p.pair = e.target.value;
+                        this.loadPaneCandles(id);
+                        this.connectDirectBinanceWs();
+                        if (id === this.activePaneId) {
+                            this.currentPair = p.pair;
+                            window.currentPair = p.pair;
+                            this.updateTickerHeader();
+                        }
+                    }
+                });
+
+                const tfSelect = paneEl.querySelector('.pane-tf-select');
+                tfSelect.addEventListener('change', (e) => {
+                    const p = this.panes.get(id);
+                    if (p) {
+                        p.interval = e.target.value;
+                        p.chart.timeframe = p.interval;
+                        this.loadPaneCandles(id);
+                        if (id === this.activePaneId) {
+                            this.currentInterval = p.interval;
+                            window.currentInterval = p.interval;
+                            document.querySelectorAll('.tf-btn').forEach(b => {
+                                b.classList.toggle('active', b.dataset.tf.toLowerCase() === p.interval.toLowerCase());
+                            });
+                        }
+                    }
+                });
+
+                paneEl.querySelector('.pane-action-btn').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    paneChart.resetView();
+                });
+
+                // Load initial candles for this pane
+                this.loadPaneCandles(id);
+            } else {
+                paneEl.style.display = 'flex';
+            }
+        });
+
+        // Hide panes that are not part of current layout
+        [0, 1, 2, 3].forEach(id => {
+            if (!targetPaneIds.includes(id)) {
+                const pEl = document.getElementById(`pane-${id}`);
+                if (pEl) pEl.style.display = 'none';
+            }
+        });
+
+        // Ensure active pane is in target
+        if (!targetPaneIds.includes(this.activePaneId)) {
+            this.setActivePane(0);
+        } else {
+            this.setActivePane(this.activePaneId);
+        }
+
+        // Trigger resize on all visible panes
+        setTimeout(() => {
+            targetPaneIds.forEach(id => {
+                const p = this.panes.get(id);
+                if (p && p.chart) p.chart.resize();
+            });
+        }, 150);
+
+        // Update multi-stream WebSocket connection for all active coins
+        this.connectDirectBinanceWs();
+    }
+
+    setActivePane(paneId) {
+        this.activePaneId = paneId;
+        const pane = this.panes.get(paneId);
+        if (!pane) return;
+
+        // Visual outline highlight
+        document.querySelectorAll('.chart-pane').forEach(el => {
+            el.classList.toggle('active', parseInt(el.dataset.paneId) === paneId);
+        });
+
+        // Sync main app state to this pane
+        this.chart = pane.chart;
+        this.currentPair = pane.pair;
+        this.currentInterval = pane.interval;
+        window.currentPair = this.currentPair;
+        window.currentInterval = this.currentInterval;
+
+        // Sync Pine Script IDE to active chart instance
+        if (this.pineIDE) {
+            this.pineIDE.chart = this.chart;
+        }
+
+        // Update Topbar UI
+        const coinSelect = document.getElementById('coin-select');
+        if (coinSelect) {
+            const cleanCur = this.cleanSymbol(this.currentPair);
+            Array.from(coinSelect.options).forEach(opt => {
+                opt.selected = this.cleanSymbol(opt.value) === cleanCur;
+            });
+        }
+
+        document.querySelectorAll('.tf-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.tf.toLowerCase() === this.currentInterval.toLowerCase());
+        });
+
+        this.updateTickerHeader();
+        this.recalculateTpSlPreviews();
+    }
+
+    cleanSymbol(pairStr) {
+        return (pairStr || 'BTC_USDT').replace('B-', '').replace('_USDT', '').replace('USDT', '').replace('_', '').toUpperCase();
+    }
+
+    async loadPaneCandles(paneId) {
+        const pane = this.panes.get(paneId);
+        if (!pane || !pane.chart) return;
+
+        const cacheKey = `${pane.pair}_${pane.interval}`;
+        if (this.candleCache && this.candleCache.has(cacheKey)) {
+            const cached = this.candleCache.get(cacheKey);
+            if (cached && cached.length) {
+                pane.chart.setCandles(cached, true, pane.interval);
+                return;
+            }
+        }
+
+        pane.chart.showLoading(this.cleanSymbol(pane.pair));
+
+        let candles = null;
+        // 1. Try local backend
+        try {
+            const ctrl = new AbortController();
+            const tm = setTimeout(() => ctrl.abort(), 2500);
+            const resp = await fetch(`/api/candles?pair=${encodeURIComponent(pane.pair)}&interval=${pane.interval}&limit=160`, { signal: ctrl.signal });
+            clearTimeout(tm);
+            if (resp.ok) {
+                const data = await resp.json();
+                if (Array.isArray(data) && data.length) candles = data;
+            }
+        } catch(e) {}
+
+        // 2. Try Binance open API
+        if (!candles || !candles.length) {
+            const sym = this.cleanSymbol(pane.pair) + 'USDT';
+            try {
+                const bCtrl = new AbortController();
+                const bTm = setTimeout(() => bCtrl.abort(), 2500);
+                const bResp = await fetch(`https://api.binance.com/api/v3/klines?symbol=${sym}&interval=${pane.interval}&limit=160`, { signal: bCtrl.signal });
+                clearTimeout(bTm);
+                if (bResp.ok) {
+                    const raw = await bResp.json();
+                    if (Array.isArray(raw) && raw.length) {
+                        candles = raw.map(k => ({
+                            time: k[0],
+                            open: parseFloat(k[1]),
+                            high: parseFloat(k[2]),
+                            low: parseFloat(k[3]),
+                            close: parseFloat(k[4]),
+                            volume: parseFloat(k[5])
+                        }));
+                    }
+                }
+            } catch(e) {}
+        }
+
+        // 3. Fallback smooth candles
+        if (!candles || !candles.length) {
+            candles = this.generateFallbackCandlesFor(pane.pair);
+        }
+
+        if (candles && candles.length) {
+            if (!this.candleCache) this.candleCache = new Map();
+            this.candleCache.set(cacheKey, candles);
+            pane.chart.setCandles(candles, true, pane.interval);
+            if (paneId === this.activePaneId) {
+                this.updateTickerHeader();
+            }
+        }
+    }
+
+    generateFallbackCandlesFor(pair) {
+        const count = 100;
+        const now = Date.now();
+        const stepMs = 3600 * 1000;
+        const clean = this.cleanSymbol(pair);
+        const match = this.markets.find(m => this.cleanSymbol(m.symbol) === clean);
+        let cur = match ? parseFloat(match.last_price || 100) : (clean === 'BTC' ? 62000 : (clean === 'ETH' ? 2450 : 100));
+
+        const candles = [];
+        for (let i = count; i >= 0; i--) {
+            const t = now - (i * stepMs);
+            const delta = (Math.random() - 0.48) * (cur * 0.012);
+            const open = cur;
+            const close = cur + delta;
+            const high = Math.max(open, close) + Math.random() * (cur * 0.005);
+            const low = Math.min(open, close) - Math.random() * (cur * 0.005);
+            const vol = Math.random() * 50 + 10;
+            candles.push({ time: t, open, high, low, close, volume: vol });
+            cur = close;
+        }
+        return candles;
+    }
+
+    broadcastTickToPanes(symStr, tick) {
+        const cleanIncoming = this.cleanSymbol(symStr);
+        this.panes.forEach(pane => {
+            if (this.cleanSymbol(pane.pair) === cleanIncoming) {
+                if (pane.chart && pane.chart.updateCurrentCandle) {
+                    pane.chart.updateCurrentCandle(tick, pane.interval);
+                }
+            }
+        });
+        if (this.cleanSymbol(this.currentPair) === cleanIncoming) {
+            this.updateTickerHeader();
+        }
+    }
+
+    startWatchdog() {
+        if (this.watchdogInterval) clearInterval(this.watchdogInterval);
+        this.watchdogInterval = setInterval(() => {
+            const now = Date.now();
+            if (!this.lastBinanceTickTime || now - this.lastBinanceTickTime > 25000) {
+                console.log("[Watchdog] Stream silent for 25s. Reconnecting & refreshing live bar...");
+                this.syncLatestCandles();
+                this.connectDirectBinanceWs();
+            }
+        }, 15000);
+    }
+
+    async syncLatestCandles() {
+        this.panes.forEach(pane => {
+            const sym = this.cleanSymbol(pane.pair) + 'USDT';
+            fetch(`https://api.binance.com/api/v3/klines?symbol=${sym}&interval=${pane.interval}&limit=2`)
+                .then(r => r.json())
+                .then(raw => {
+                    if (Array.isArray(raw) && raw.length && pane.chart) {
+                        const lastK = raw[raw.length - 1];
+                        pane.chart.updateCurrentCandle({
+                            price: parseFloat(lastK[4]),
+                            quantity: parseFloat(lastK[5]),
+                            time: lastK[0]
+                        }, pane.interval);
+                    }
+                })
+                .catch(() => {});
+        });
+    }
+
     connectWebSocket() {
         const isGithubPages = window.location.hostname.includes('github.io');
         if (isGithubPages) {
@@ -1009,12 +1438,7 @@ class OpenChartApp {
                 try {
                     const data = JSON.parse(event.data);
                     if (data.type === 'tick') {
-                        const tickSym = (data.symbol || '').replace('B-', '').replace('_', '').toUpperCase();
-                        const currentClean = (this.currentPair || '').replace('B-', '').replace('_', '').toUpperCase();
-                        if (tickSym === currentClean) {
-                            this.chart.updateCurrentCandle(data);
-                            this.updateTickerHeader();
-                        }
+                        this.broadcastTickToPanes(data.symbol, data);
 
                         if (data.events && data.events.length > 0) {
                             data.events.forEach(ev => {
@@ -1045,27 +1469,70 @@ class OpenChartApp {
     connectDirectBinanceWs() {
         try {
             if (this.binanceWs) {
-                try { this.binanceWs.close(); } catch(e) {}
+                try {
+                    this.binanceWs.onclose = null;
+                    this.binanceWs.onerror = null;
+                    this.binanceWs.close();
+                } catch(e) {}
                 this.binanceWs = null;
             }
-            const symbol = (this.getCleanSymbol() + 'usdt').toLowerCase();
-            this.binanceWs = new WebSocket(`wss://stream.binance.com:9443/ws/${symbol}@trade`);
+
+            // Gather all symbols needed across active visible panes
+            const activeStreams = new Set();
+            this.panes.forEach(pane => {
+                const sym = this.cleanSymbol(pane.pair).toLowerCase();
+                if (sym) activeStreams.add(`${sym}usdt@trade`);
+            });
+
+            if (!activeStreams.size) {
+                activeStreams.add(`${this.getCleanSymbol().toLowerCase()}usdt@trade`);
+            }
+
+            const streamArr = Array.from(activeStreams);
+            const streamUrl = streamArr.length === 1
+                ? `wss://stream.binance.com:9443/ws/${streamArr[0]}`
+                : `wss://stream.binance.com:9443/stream?streams=${streamArr.join('/')}`;
+
+            this.binanceWs = new WebSocket(streamUrl);
+
+            this.binanceWs.onopen = () => {
+                console.log(`[Binance Stream] Connected to ${streamArr.length} symbol stream(s)`);
+                this.lastBinanceTickTime = Date.now();
+            };
 
             this.binanceWs.onmessage = (e) => {
                 try {
-                    const tick = JSON.parse(e.data);
+                    const parsed = JSON.parse(e.data);
+                    const tick = parsed.data || parsed;
                     if (tick && tick.p) {
-                        const curClean = (this.getCleanSymbol() + 'usdt').toLowerCase();
-                        if (tick.s && tick.s.toLowerCase() !== curClean) return;
-                        this.chart.updateCurrentCandle({
-                            price: parseFloat(tick.p),
-                            quantity: parseFloat(tick.q || 0)
-                        });
-                        this.updateTickerHeader();
+                        this.lastBinanceTickTime = Date.now();
+                        const s = tick.s || '';
+                        const p = parseFloat(tick.p);
+                        const q = parseFloat(tick.q || 0);
+                        const t = tick.T || Date.now();
+
+                        this.broadcastTickToPanes(s, { price: p, quantity: q, time: t });
                     }
                 } catch(err) {}
             };
-        } catch (err) {}
+
+            this.binanceWs.onerror = (err) => {
+                console.warn("[Binance WS] Connection error:", err);
+                try { this.binanceWs.close(); } catch(e) {}
+            };
+
+            this.binanceWs.onclose = () => {
+                console.log("[Binance WS] Disconnected. Reconnecting in 2.5s...");
+                if (!this.binanceReconnectTimeout) {
+                    this.binanceReconnectTimeout = setTimeout(() => {
+                        this.binanceReconnectTimeout = null;
+                        this.connectDirectBinanceWs();
+                    }, 2500);
+                }
+            };
+        } catch (err) {
+            setTimeout(() => this.connectDirectBinanceWs(), 3000);
+        }
     }
 
     async handleRunReaAgent() {

@@ -404,10 +404,10 @@ class PineEngine:
 
             # Check if block
             if line.startswith("if ") or line.startswith("if("):
-                cond_str = re.search(r"if\s*\(?([^)]+)\)?", line)
-                if cond_str:
-                    cond_var = cond_str.group(1).strip()
-                    current_if_cond = cond_var
+                raw_c = line[2:].strip() if line.startswith("if(") else line[3:].strip()
+                if raw_c.startswith("(") and raw_c.endswith(")"):
+                    raw_c = raw_c[1:-1].strip()
+                current_if_cond = raw_c
                 continue
 
             # Indented body inside if
@@ -599,6 +599,20 @@ class PineEngine:
     def _evaluate_expr(cls, expr: str, env: Dict[str, Any], n: int, opens, highs, lows, closes, volumes) -> Any:
         expr = expr.strip()
 
+        # Handle compound boolean expressions e.g. ta.crossover(a, b) and rsi < 70
+        if " and " in expr or " or " in expr:
+            res = [False] * n
+            for b in range(n):
+                res[b] = cls._eval_condition_at_bar(expr, env, b)
+            return res
+
+        for op in [">=", "<=", "==", "!=", ">", "<"]:
+            if op in expr and not expr.startswith("ta."):
+                res = [False] * n
+                for b in range(n):
+                    res[b] = cls._eval_condition_at_bar(expr, env, b)
+                return res
+
         # 1. ta.ema(source, length)
         if expr.startswith("ta.ema"):
             args = cls._extract_call_args(expr)
@@ -693,14 +707,55 @@ class PineEngine:
     @classmethod
     def _eval_condition_at_bar(cls, cond_str: str, env: Dict[str, Any], bar: int) -> bool:
         cond_str = cond_str.strip()
-        # Direct boolean series in env
+        if not cond_str:
+            return False
+
+        # 1. Compound 'or'
+        if " or " in cond_str:
+            parts = cond_str.split(" or ")
+            return any(cls._eval_condition_at_bar(p.strip(), env, bar) for p in parts)
+
+        # 2. Compound 'and'
+        if " and " in cond_str:
+            parts = cond_str.split(" and ")
+            return all(cls._eval_condition_at_bar(p.strip(), env, bar) for p in parts)
+
+        # 3. Direct variable or series reference
         if cond_str in env:
             val = env[cond_str]
-            if isinstance(val, list) and bar < len(val):
-                return bool(val[bar])
+            if isinstance(val, list):
+                if bar < len(val):
+                    return bool(val[bar])
+                return False
             return bool(val)
 
-        # Handle > or < expressions: e.g. close > highestHigh[1]
+        # 4. ta.crossover(s1, s2)
+        if cond_str.startswith("ta.crossover"):
+            args = cls._extract_call_args(cond_str)
+            if len(args) >= 2 and bar > 0:
+                s1 = env.get(args[0].strip())
+                s2 = env.get(args[1].strip())
+                if s1 and s2 and bar < len(s1) and bar < len(s2):
+                    v1, v2 = s1[bar], s2[bar]
+                    p1, p2 = s1[bar - 1], s2[bar - 1]
+                    if v1 is not None and v2 is not None and p1 is not None and p2 is not None:
+                        return v1 > v2 and p1 <= p2
+            return False
+
+        # 5. ta.crossunder(s1, s2)
+        if cond_str.startswith("ta.crossunder"):
+            args = cls._extract_call_args(cond_str)
+            if len(args) >= 2 and bar > 0:
+                s1 = env.get(args[0].strip())
+                s2 = env.get(args[1].strip())
+                if s1 and s2 and bar < len(s1) and bar < len(s2):
+                    v1, v2 = s1[bar], s2[bar]
+                    p1, p2 = s1[bar - 1], s2[bar - 1]
+                    if v1 is not None and v2 is not None and p1 is not None and p2 is not None:
+                        return v1 < v2 and p1 >= p2
+            return False
+
+        # 6. Comparisons (>=, <=, ==, !=, >, <)
         for op in [">=", "<=", "==", "!=", ">", "<"]:
             if op in cond_str:
                 left, right = cond_str.split(op, 1)

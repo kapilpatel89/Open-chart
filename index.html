@@ -67,6 +67,31 @@
                 </div>
             </div>
 
+                        <!-- Candle Drawing Style Selector -->
+            <div class="dropdown-container">
+                <button id="btn-candle-style-menu" class="btn-secondary" title="Switch Candlestick Drawing Style">
+                    <span id="selected-candle-style">🕯 Normal ▾</span>
+                </button>
+                <div id="candle-style-dropdown" class="dropdown-menu">
+                    <div class="dropdown-item active" data-style="normal">🕯 Normal (TradingView Crisp)</div>
+                    <div class="dropdown-item" data-style="hollow">⚪ Hollow Candles</div>
+                    <div class="dropdown-item" data-style="3d">◈ 3D Cylinder</div>
+                </div>
+            </div>
+
+            <!-- Multi-Chart Layout Selector -->
+            <div class="dropdown-container">
+                <button id="btn-layout-menu" class="btn-secondary" title="Multi-Chart Split View">
+                    <span id="selected-layout-label">◫ Layout (1) ▾</span>
+                </button>
+                <div id="layout-dropdown" class="dropdown-menu">
+                    <div class="dropdown-item active" data-layout="1">◫ 1 Single Chart</div>
+                    <div class="dropdown-item" data-layout="2h">❚❚ 2 Charts (Split Horizontal)</div>
+                    <div class="dropdown-item" data-layout="2v">〓 2 Charts (Stack Vertical)</div>
+                    <div class="dropdown-item" data-layout="4">▦ 4 Charts (Quad 2x2 Grid)</div>
+                </div>
+            </div>
+
             <div class="topbar-right">
                 <button id="btn-fullscreen" class="btn-secondary" title="Toggle Fullscreen Mode (F11)">
                     <span>⛶ Fullscreen</span>
@@ -124,7 +149,11 @@
 
             <!-- Center Chart Area -->
             <div class="chart-wrapper">
-                <canvas id="chart-canvas"></canvas>
+                <div id="multi-chart-grid" class="multi-chart-grid layout-1">
+                    <div class="chart-pane active" id="pane-0" data-pane-id="0">
+                        <canvas id="chart-canvas"></canvas>
+                    </div>
+                </div>
 
                 <!-- Floating Chart Overlay HUD Buttons -->
                 <div class="chart-floating-controls">

@@ -9,7 +9,7 @@
 
 class OpenChart3D {
     constructor(canvasId, options = {}) {
-        this.canvas = document.getElementById(canvasId);
+        this.canvas = typeof canvasId === 'string' ? document.getElementById(canvasId) : canvasId;
         this.ctx = this.canvas.getContext('2d', { alpha: false });
         this.options = Object.assign({
             candleWidth: 14,
@@ -19,8 +19,13 @@ class OpenChart3D {
             backgroundColor: '#07090e',
             gridColor: 'rgba(255, 255, 255, 0.04)',
             textColor: '#8a99ad',
-            accentColor: '#00f0ff'
+            accentColor: '#00f0ff',
+            candleStyle: 'normal',
+            timeframe: '1h'
         }, options);
+
+        this.candleStyle = this.options.candleStyle || 'normal';
+        this.timeframe = this.options.timeframe || '1h';
 
         this.candles = [];
         this.indicators = [];
@@ -113,9 +118,10 @@ class OpenChart3D {
         this.render();
     }
 
-    setCandles(candles, forceReset = true) {
+    setCandles(candles, forceReset = true, timeframe = null) {
         this.isLoading = false;
         this.loadingSymbol = '';
+        if (timeframe) this.timeframe = timeframe;
         this.candles = candles || [];
         if (forceReset || this.autoScale || this.offsetX === 0) {
             this.resetView();
@@ -125,18 +131,62 @@ class OpenChart3D {
         }
     }
 
-    updateCurrentCandle(tick) {
+    updateCurrentCandle(tick, interval = null) {
         if (!this.candles.length) return;
-        const last = this.candles[this.candles.length - 1];
-        const price = tick.price;
+        const price = parseFloat(tick.price);
+        if (!isFinite(price) || price <= 0) return;
 
-        last.close = price;
-        last.high = Math.max(last.high, price);
-        last.low = Math.min(last.low, price);
-        last.volume += (tick.quantity || 0);
+        const tf = interval || this.timeframe || '1h';
+        const tfMs = this.timeframeToMs(tf);
+        const last = this.candles[this.candles.length - 1];
+        const tickTime = tick.time ? parseInt(tick.time) : Date.now();
+
+        // Check if tick crossed into the next timeframe candle bar
+        if (tickTime >= last.time + tfMs) {
+            const newBarTime = last.time + tfMs * Math.max(1, Math.floor((tickTime - last.time) / tfMs));
+            const newCandle = {
+                time: newBarTime,
+                open: price,
+                high: price,
+                low: price,
+                close: price,
+                volume: parseFloat(tick.quantity || 0)
+            };
+            this.candles.push(newCandle);
+            if (this.candles.length > 500) {
+                this.candles.shift();
+            }
+
+            // Auto advance viewport if user was pinned near the right edge
+            const step = this.candleWidth + this.candleGap;
+            const totalW = this.candles.length * step;
+            const viewW = this.width - this.priceAxisWidth;
+            if (this.offsetX >= totalW - viewW - step * 4) {
+                this.offsetX = Math.max(0, totalW - viewW + 120);
+            }
+        } else {
+            last.close = price;
+            last.high = Math.max(last.high, price);
+            last.low = Math.min(last.low, price);
+            last.volume += parseFloat(tick.quantity || 0);
+        }
 
         this.updatePriceRange();
         this.render();
+    }
+
+    setCandleStyle(style) {
+        this.candleStyle = style || 'normal';
+        this.render();
+    }
+
+    timeframeToMs(interval) {
+        const tf = (interval || this.timeframe || '1h').toLowerCase();
+        if (tf.endsWith('m')) return (parseInt(tf) || 1) * 60 * 1000;
+        if (tf.endsWith('h')) return (parseInt(tf) || 1) * 3600 * 1000;
+        if (tf.endsWith('d')) return (parseInt(tf) || 1) * 86400 * 1000;
+        if (tf.endsWith('w')) return (parseInt(tf) || 1) * 7 * 86400 * 1000;
+        return 3600 * 1000;
     }
 
     setIndicators(indicators) {
@@ -307,11 +357,17 @@ class OpenChart3D {
             console.error("Indicators render error:", e);
         }
 
-        // 5. Volumetric 3D Candlesticks (Glossy Specular + Matte Finish)
+        // 5. Candlesticks (Normal TradingView Crisp, Hollow, or 3D)
         try {
-            this.draw3DCandles(ctx);
+            if (this.candleStyle === 'hollow') {
+                this.drawHollowCandles(ctx);
+            } else if (this.candleStyle === '3d') {
+                this.draw3DCandles(ctx);
+            } else {
+                this.drawNormalCandles(ctx);
+            }
         } catch (e) {
-            console.error("3D Candles render error:", e);
+            console.error("Candles render error:", e);
         }
 
         // 6. Strategy Signals & Markers
@@ -478,6 +534,98 @@ class OpenChart3D {
 
             ctx.fillStyle = vGrad;
             ctx.fillRect(x, y, this.candleWidth, vHeight);
+        }
+    }
+
+    /**
+     * Authentic TradingView-Style Crisp Normal Candlesticks (High Contrast & Sharp Wicks)
+     */
+    drawNormalCandles(ctx) {
+        const { startIdx, endIdx } = this.visibleRange;
+        const upColor = '#089981';   // TradingView Emerald
+        const downColor = '#f23645'; // TradingView Ruby
+
+        for (let i = startIdx; i <= endIdx; i++) {
+            const c = this.candles[i];
+            if (!c) continue;
+
+            const isBullish = c.close >= c.open;
+            const color = isBullish ? upColor : downColor;
+            const x = Math.round(this.candleToX(i));
+            const openY = Math.round(this.priceToY(c.open));
+            const closeY = Math.round(this.priceToY(c.close));
+            const highY = Math.round(this.priceToY(c.high));
+            const lowY = Math.round(this.priceToY(c.low));
+
+            const topY = Math.min(openY, closeY);
+            const bottomY = Math.max(openY, closeY);
+            const bodyH = Math.max(1, bottomY - topY);
+            const centerX = Math.round(x + this.candleWidth / 2);
+
+            // 1. Crisp Single-Pixel Wick
+            ctx.save();
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(centerX + 0.5, highY);
+            ctx.lineTo(centerX + 0.5, lowY);
+            ctx.stroke();
+
+            // 2. Crisp Solid Candle Body
+            ctx.fillStyle = color;
+            ctx.fillRect(x, topY, this.candleWidth, bodyH);
+
+            // Subtle border outline for pin-sharp contrast
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 1;
+            ctx.strokeRect(x + 0.5, topY + 0.5, this.candleWidth - 1, bodyH - 1);
+            ctx.restore();
+        }
+    }
+
+    /**
+     * Hollow Candlesticks: Bullish candles are hollow, Bearish candles are solid
+     */
+    drawHollowCandles(ctx) {
+        const { startIdx, endIdx } = this.visibleRange;
+        const upColor = '#089981';
+        const downColor = '#f23645';
+
+        for (let i = startIdx; i <= endIdx; i++) {
+            const c = this.candles[i];
+            if (!c) continue;
+
+            const isBullish = c.close >= c.open;
+            const color = isBullish ? upColor : downColor;
+            const x = Math.round(this.candleToX(i));
+            const openY = Math.round(this.priceToY(c.open));
+            const closeY = Math.round(this.priceToY(c.close));
+            const highY = Math.round(this.priceToY(c.high));
+            const lowY = Math.round(this.priceToY(c.low));
+
+            const topY = Math.min(openY, closeY);
+            const bottomY = Math.max(openY, closeY);
+            const bodyH = Math.max(1, bottomY - topY);
+            const centerX = Math.round(x + this.candleWidth / 2);
+
+            ctx.save();
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(centerX + 0.5, highY);
+            ctx.lineTo(centerX + 0.5, lowY);
+            ctx.stroke();
+
+            if (isBullish) {
+                ctx.fillStyle = '#07090e';
+                ctx.fillRect(x, topY, this.candleWidth, bodyH);
+                ctx.strokeStyle = color;
+                ctx.strokeRect(x + 0.5, topY + 0.5, this.candleWidth - 1, bodyH - 1);
+            } else {
+                ctx.fillStyle = color;
+                ctx.fillRect(x, topY, this.candleWidth, bodyH);
+            }
+            ctx.restore();
         }
     }
 
