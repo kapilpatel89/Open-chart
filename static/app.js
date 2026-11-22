@@ -461,11 +461,23 @@ class OpenChartApp {
         }
     }
 
+    formatPrice(val) {
+        if (val === null || val === undefined || !isFinite(val)) return '0.00';
+        const abs = Math.abs(val);
+        if (abs >= 1000) return val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        if (abs >= 1) return val.toFixed(2);
+        if (abs >= 0.01) return val.toFixed(4);
+        if (abs >= 0.0001) return val.toFixed(6);
+        return val.toFixed(8);
+    }
+
     getCurrentPrice() {
-        if (this.chart && this.chart.candles.length) {
+        const clean = this.cleanSymbol(this.currentPair);
+        const chartClean = this.chart && this.chart.symbol ? this.cleanSymbol(this.chart.symbol) : '';
+        if (chartClean === clean && this.chart && this.chart.candles && this.chart.candles.length) {
             return this.chart.candles[this.chart.candles.length - 1].close;
         }
-        return 0;
+        return this.getKnownBasePrice(this.currentPair);
     }
 
     async onMarketChange() {
@@ -477,6 +489,32 @@ class OpenChartApp {
             this.currentPair = `B-${base}_USDT`;
         }
         window.currentPair = this.currentPair;
+        const cleanSym = this.getCleanSymbol();
+
+        // Synchronize active pane and pane 0 pair and symbol
+        const targetPaneId = (this.activePaneId !== undefined && this.panes && this.panes.has(this.activePaneId))
+            ? this.activePaneId : 0;
+        if (this.panes && this.panes.has(targetPaneId)) {
+            const p = this.panes.get(targetPaneId);
+            p.pair = this.currentPair;
+            if (p.chart) p.chart.symbol = cleanSym;
+        }
+        if (this.panes && this.panes.has(0)) {
+            const p0 = this.panes.get(0);
+            p0.pair = this.currentPair;
+            if (p0.chart) p0.chart.symbol = cleanSym;
+        }
+        if (this.chart) {
+            this.chart.symbol = cleanSym;
+        }
+
+        // Sync pane dropdown selector if present
+        const activePaneEl = document.getElementById(`pane-${targetPaneId}`);
+        if (activePaneEl) {
+            const sel = activePaneEl.querySelector('.pane-coin-select');
+            if (sel) sel.value = this.currentPair;
+        }
+
         this.updateSymbolTriggerDisplay();
 
         const normInterval = this.currentInterval || '1h';
@@ -487,7 +525,7 @@ class OpenChartApp {
         if (this.candleCache && this.candleCache.has(cacheKey)) {
             const cachedCandles = this.candleCache.get(cacheKey);
             if (cachedCandles && cachedCandles.length) {
-                this.chart.setCandles(cachedCandles, true);
+                this.chart.setCandles(cachedCandles, true, normInterval, cleanSym);
                 this.updateTickerHeader();
                 this.recalculateTpSlPreviews();
                 this.applyQuickIndicators();
@@ -497,7 +535,7 @@ class OpenChartApp {
         if (!hasCache) {
             // Immediate zero-latency fallback candles accurately calibrated to this coin's price level
             const fallback = this.generateFallbackCandles(this.currentPair);
-            this.chart.setCandles(fallback, true);
+            this.chart.setCandles(fallback, true, normInterval, cleanSym);
             this.updateTickerHeader();
         }
 
@@ -871,8 +909,8 @@ class OpenChartApp {
             textEl.textContent = `${clean} / USDT`;
         }
         if (priceEl) {
-            const curP = this.getCurrentPrice() || this.getKnownBasePrice(this.currentPair);
-            priceEl.textContent = `$${curP.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`;
+            const curP = this.getCurrentPrice();
+            priceEl.textContent = `($${this.formatPrice(curP)})`;
         }
     }
 
@@ -902,6 +940,14 @@ class OpenChartApp {
         this.currentInterval = normInterval;
         window.currentInterval = normInterval;
 
+        const targetPaneId = (this.activePaneId !== undefined && this.panes && this.panes.has(this.activePaneId))
+            ? this.activePaneId : 0;
+        if (this.panes && this.panes.has(targetPaneId)) {
+            const p = this.panes.get(targetPaneId);
+            p.interval = normInterval;
+            if (p.chart) p.chart.timeframe = normInterval;
+        }
+
         // 1. Immediately update active timeframe UI button
         document.querySelectorAll('.tf-btn').forEach(b => {
             b.classList.toggle('active', b.dataset.tf.toLowerCase() === normInterval);
@@ -912,7 +958,7 @@ class OpenChartApp {
         // 2. Instant Cache Switch (0ms Immediate Chart Load)
         if (this.candleCache && this.candleCache.has(cacheKey)) {
             const cachedCandles = this.candleCache.get(cacheKey);
-            this.chart.setCandles(cachedCandles, true);
+            this.chart.setCandles(cachedCandles, true, normInterval, this.cleanSymbol(this.currentPair));
             this.updateTickerHeader();
             this.recalculateTpSlPreviews();
             this.applyQuickIndicators();
@@ -1279,7 +1325,7 @@ class OpenChartApp {
                 if (!this.candleCache) this.candleCache = new Map();
                 this.candleCache.set(cacheKey, candles);
 
-                this.chart.setCandles(candles, forceReset);
+                this.chart.setCandles(candles, forceReset, this.currentInterval, this.cleanSymbol(this.currentPair));
                 this.updateTickerHeader();
                 this.recalculateTpSlPreviews();
                 this.applyQuickIndicators();
@@ -1601,15 +1647,23 @@ class OpenChartApp {
         const curPrice = this.getCurrentPrice();
         if (curPrice <= 0) return;
 
-        document.getElementById('ticker-price').textContent = `$${curPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
+        const clean = this.cleanSymbol(this.currentPair);
+        const chartClean = this.chart && this.chart.symbol ? this.cleanSymbol(this.chart.symbol) : '';
 
-        if (this.chart.candles.length > 1) {
+        const priceEl = document.getElementById('ticker-price');
+        if (priceEl) {
+            priceEl.textContent = `$${this.formatPrice(curPrice)}`;
+        }
+
+        if (this.chart && this.chart.candles.length > 1 && (!chartClean || chartClean === clean)) {
             const first = this.chart.candles[0];
             const chg = ((curPrice - first.open) / first.open) * 100;
             const isPos = chg >= 0;
             const chgEl = document.getElementById('ticker-change');
-            chgEl.textContent = `${isPos ? '+' : ''}${chg.toFixed(2)}%`;
-            chgEl.className = `ticker-change ${isPos ? '' : 'bearish'}`;
+            if (chgEl) {
+                chgEl.textContent = `${isPos ? '+' : ''}${chg.toFixed(2)}%`;
+                chgEl.className = `ticker-change ${isPos ? '' : 'bearish'}`;
+            }
 
             let high = -Infinity, low = Infinity, vol = 0;
             this.chart.candles.forEach(c => {
@@ -1617,9 +1671,12 @@ class OpenChartApp {
                 if (c.low < low) low = c.low;
                 vol += c.volume;
             });
-            document.getElementById('ticker-high').textContent = `$${high.toFixed(2)}`;
-            document.getElementById('ticker-low').textContent = `$${low.toFixed(2)}`;
-            document.getElementById('ticker-vol').textContent = `${vol.toFixed(1)}`;
+            const highEl = document.getElementById('ticker-high');
+            const lowEl = document.getElementById('ticker-low');
+            const volEl = document.getElementById('ticker-vol');
+            if (highEl) highEl.textContent = `$${this.formatPrice(high)}`;
+            if (lowEl) lowEl.textContent = `$${this.formatPrice(low)}`;
+            if (volEl) volEl.textContent = `${vol.toFixed(1)}`;
         }
     }
 
@@ -2011,7 +2068,7 @@ class OpenChartApp {
         if (this.candleCache && this.candleCache.has(cacheKey)) {
             const cached = this.candleCache.get(cacheKey);
             if (cached && cached.length) {
-                pane.chart.setCandles(cached, true, pane.interval);
+                pane.chart.setCandles(cached, true, pane.interval, this.cleanSymbol(pane.pair));
                 return;
             }
         }
@@ -2063,7 +2120,7 @@ class OpenChartApp {
         if (candles && candles.length) {
             if (!this.candleCache) this.candleCache = new Map();
             this.candleCache.set(cacheKey, candles);
-            pane.chart.setCandles(candles, true, pane.interval);
+            pane.chart.setCandles(candles, true, pane.interval, this.cleanSymbol(pane.pair));
             if (paneId === this.activePaneId) {
                 this.updateTickerHeader();
             }
@@ -2077,6 +2134,7 @@ class OpenChartApp {
 
     broadcastTickToPanes(symStr, tick) {
         const cleanIncoming = this.cleanSymbol(symStr);
+        tick.symbol = cleanIncoming;
         this.panes.forEach(pane => {
             if (this.cleanSymbol(pane.pair) === cleanIncoming) {
                 if (pane.chart && pane.chart.updateCurrentCandle) {
@@ -2115,6 +2173,7 @@ class OpenChartApp {
                     if (Array.isArray(raw) && raw.length && pane.chart) {
                         const lastK = raw[raw.length - 1];
                         pane.chart.updateCurrentCandle({
+                            symbol: pane.pair,
                             price: parseFloat(lastK[4]),
                             quantity: parseFloat(lastK[5]),
                             time: lastK[0]
@@ -2220,7 +2279,7 @@ class OpenChartApp {
                         const q = parseFloat(tick.q || 0);
                         const t = tick.T || Date.now();
 
-                        this.broadcastTickToPanes(s, { price: p, quantity: q, time: t });
+                        this.broadcastTickToPanes(s, { price: p, quantity: q, time: t, symbol: s });
                     }
                 } catch(err) {}
             };

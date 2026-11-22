@@ -26,6 +26,7 @@ class OpenChart3D {
 
         this.candleStyle = this.options.candleStyle || 'normal';
         this.timeframe = this.options.timeframe || '1h';
+        this.symbol = (this.options && this.options.symbol) ? String(this.options.symbol).replace('B-', '').replace('_USDT', '').replace('USDT', '').replace('_', '').toUpperCase() : 'BTC';
 
         this.candles = [];
         this.indicators = [];
@@ -123,10 +124,23 @@ class OpenChart3D {
         this.render();
     }
 
-    setCandles(candles, forceReset = true, timeframe = null) {
+    formatPrice(val) {
+        if (val === null || val === undefined || !isFinite(val)) return '0.00';
+        const abs = Math.abs(val);
+        if (abs >= 1000) return val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        if (abs >= 1) return val.toFixed(2);
+        if (abs >= 0.01) return val.toFixed(4);
+        if (abs >= 0.0001) return val.toFixed(6);
+        return val.toFixed(8);
+    }
+
+    setCandles(candles, forceReset = true, timeframe = null, symbol = null) {
         this.isLoading = false;
         this.loadingSymbol = '';
         if (timeframe) this.timeframe = timeframe;
+        if (symbol) {
+            this.symbol = String(symbol).replace('B-', '').replace('_USDT', '').replace('USDT', '').replace('_', '').toUpperCase();
+        }
         this.candles = candles || [];
         if (forceReset || this.autoScale || this.offsetX === 0) {
             this.resetView();
@@ -141,26 +155,23 @@ class OpenChart3D {
         const price = parseFloat(tick.price);
         if (!isFinite(price) || price <= 0) return;
 
+        // Cross-asset guard: Never accept ticks meant for another coin
+        if (tick.symbol && this.symbol) {
+            const cleanTick = String(tick.symbol).replace('B-', '').replace('_USDT', '').replace('USDT', '').replace('_', '').toUpperCase();
+            const cleanChart = String(this.symbol).replace('B-', '').replace('_USDT', '').replace('USDT', '').replace('_', '').toUpperCase();
+            if (cleanTick !== cleanChart) return;
+        }
+
         const tf = interval || this.timeframe || '1h';
         const tfMs = this.timeframeToMs(tf);
         const last = this.candles[this.candles.length - 1];
         const tickTime = tick.time ? parseInt(tick.time) : Date.now();
 
-        // Anti-Distortion Guard: Detect asset/data mismatch (e.g. stale fallback candles from another coin)
-        // If price differs by > 35% from last candle close, instantly rescale all historical bars
-        // to prevent the 1-line flat compression & giant vertical spike artifact!
+        // Anomaly / cross-asset rogue tick protection:
+        // If price differs by > 35% from last candle close, reject this tick to prevent corrupting the chart
         const priceDiffRatio = Math.abs(price - last.close) / Math.max(0.000001, last.close);
         if (priceDiffRatio > 0.35 && this.candles.length > 5) {
-            const ratio = price / Math.max(0.000001, last.close);
-            this.candles.forEach(c => {
-                c.open = Number((c.open * ratio).toFixed(6));
-                c.high = Number((c.high * ratio).toFixed(6));
-                c.low = Number((c.low * ratio).toFixed(6));
-                c.close = Number((c.close * ratio).toFixed(6));
-            });
-            if (window.app && typeof window.app.loadCandles === 'function') {
-                window.app.loadCandles(false);
-            }
+            return;
         }
 
         // Check if tick crossed into the next timeframe candle bar
@@ -226,8 +237,18 @@ class OpenChart3D {
     }
 
     setOrders(orders, positions) {
-        this.orders = orders || [];
-        this.positions = positions || [];
+        const cleanSym = this.symbol ? String(this.symbol).replace('B-', '').replace('_USDT', '').replace('USDT', '').replace('_', '').toUpperCase() : '';
+        const filterItem = (it) => {
+            if (!it) return false;
+            if (!cleanSym) return true;
+            if (it.symbol) {
+                const s = String(it.symbol).replace('B-', '').replace('_USDT', '').replace('USDT', '').replace('_', '').toUpperCase();
+                return s === cleanSym;
+            }
+            return true;
+        };
+        this.orders = (orders || []).filter(filterItem);
+        this.positions = (positions || []).filter(filterItem);
         this.render();
     }
 
@@ -277,20 +298,27 @@ class OpenChart3D {
             if (isFinite(c.high) && c.high > max) max = c.high;
         }
 
-        // Active Orders & Positions TP/SL
+        // Active Orders & Positions TP/SL (bounded to prevent foreign coin distortion)
+        const lastC = (this.candles && this.candles.length) ? this.candles[this.candles.length - 1] : null;
+        const lastClose = (lastC && isFinite(lastC.close) && lastC.close > 0) ? lastC.close : null;
         [...this.positions, ...this.orders].forEach(item => {
             const p = item.entry_price || item.price;
+            if (lastClose && (p > lastClose * 3.5 || p < lastClose * 0.25)) return;
             if (p && isFinite(p)) {
                 if (p < min) min = p;
                 if (p > max) max = p;
             }
             if (item.take_profit && isFinite(item.take_profit)) {
-                if (item.take_profit < min) min = item.take_profit;
-                if (item.take_profit > max) max = item.take_profit;
+                if (!lastClose || (item.take_profit <= lastClose * 3.5 && item.take_profit >= lastClose * 0.25)) {
+                    if (item.take_profit < min) min = item.take_profit;
+                    if (item.take_profit > max) max = item.take_profit;
+                }
             }
             if (item.stop_loss && isFinite(item.stop_loss)) {
-                if (item.stop_loss < min) min = item.stop_loss;
-                if (item.stop_loss > max) max = item.stop_loss;
+                if (!lastClose || (item.stop_loss <= lastClose * 3.5 && item.stop_loss >= lastClose * 0.25)) {
+                    if (item.stop_loss < min) min = item.stop_loss;
+                    if (item.stop_loss > max) max = item.stop_loss;
+                }
             }
         });
 
@@ -1404,7 +1432,7 @@ class OpenChart3D {
         ctx.font = 'bold 11px Inter, monospace';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(price.toFixed(2), chartRight + (this.priceAxisWidth / 2), y);
+        ctx.fillText(this.formatPrice(price), chartRight + (this.priceAxisWidth / 2), y);
         ctx.restore();
 
         // Time Badge on Bottom Axis & HUD
@@ -1443,7 +1471,7 @@ class OpenChart3D {
         const isBullish = candle.close >= candle.open;
         const color = isBullish ? '#00e676' : '#ff1744';
 
-        const text = `O: ${candle.open.toFixed(2)}  H: ${candle.high.toFixed(2)}  L: ${candle.low.toFixed(2)}  C: ${candle.close.toFixed(2)}  V: ${candle.volume.toFixed(1)}`;
+        const text = `O: ${this.formatPrice(candle.open)}  H: ${this.formatPrice(candle.high)}  L: ${this.formatPrice(candle.low)}  C: ${this.formatPrice(candle.close)}  V: ${candle.volume.toFixed(1)}`;
 
         ctx.fillStyle = 'rgba(7, 9, 14, 0.75)';
         this.roundRect(ctx, 10, 10, ctx.measureText(text).width + 16, 24, 4);
@@ -1598,7 +1626,7 @@ class OpenChart3D {
             ctx.font = 'bold 11px Inter, monospace';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText(lastCandle.close.toFixed(2), chartRight + (this.priceAxisWidth / 2), liveY);
+            ctx.fillText(this.formatPrice(lastCandle.close), chartRight + (this.priceAxisWidth / 2), liveY);
         }
 
         // Price Axis Ticks
@@ -1612,7 +1640,7 @@ class OpenChart3D {
         for (let i = 0; i <= stepCount; i++) {
             const p = this.priceRange.min + i * pStep;
             const y = this.priceToY(p);
-            ctx.fillText(p.toFixed(2), chartRight + 8, y);
+            ctx.fillText(this.formatPrice(p), chartRight + 6, y);
         }
         ctx.restore();
     }
