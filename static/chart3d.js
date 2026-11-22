@@ -841,6 +841,8 @@ class OpenChart3D {
 
             ctx.beginPath();
             let started = false;
+            let prevX = null;
+            let prevY = null;
 
             ind.data.forEach(pt => {
                 const candleIdx = this.candles.findIndex(c => c.time === pt.time);
@@ -851,8 +853,15 @@ class OpenChart3D {
                         ctx.moveTo(x, y);
                         started = true;
                     } else {
-                        ctx.lineTo(x, y);
+                        if (ind.style === 'stepline') {
+                            ctx.lineTo(x, prevY !== null ? prevY : y);
+                            ctx.lineTo(x, y);
+                        } else {
+                            ctx.lineTo(x, y);
+                        }
                     }
+                    prevX = x;
+                    prevY = y;
                 }
             });
 
@@ -923,18 +932,19 @@ class OpenChart3D {
         if (!this.signals.length) return;
 
         this.signals.forEach(sig => {
-            const candleIdx = this.candles.findIndex(c => Math.abs(c.time - sig.time) < 30000);
+            const candleIdx = this.candles.findIndex(c => c.time === sig.time || Math.abs(c.time - sig.time) < 3600000);
             if (candleIdx < 0) return;
 
             const x = this.candleToX(candleIdx) + this.candleWidth / 2;
             const c = this.candles[candleIdx];
-            const isBuy = sig.type === 'BUY';
+            const isBuy = sig.type === 'BUY' || sig.shape === 'triangleup';
+            const sigColor = sig.color || (isBuy ? '#00e676' : '#ff1744');
             const y = isBuy ? this.priceToY(c.low) + 20 : this.priceToY(c.high) - 20;
 
             ctx.save();
-            ctx.shadowColor = isBuy ? '#00e676' : '#ff1744';
+            ctx.shadowColor = sigColor;
             ctx.shadowBlur = 10;
-            ctx.fillStyle = isBuy ? '#00e676' : '#ff1744';
+            ctx.fillStyle = sigColor;
 
             ctx.beginPath();
             if (isBuy) {
@@ -953,7 +963,7 @@ class OpenChart3D {
             ctx.fillStyle = '#ffffff';
             ctx.textAlign = 'center';
             const textY = isBuy ? y + 14 : y - 10;
-            ctx.fillText(sig.label, x, textY);
+            ctx.fillText(sig.label || (isBuy ? 'BUY' : 'SELL'), x, textY);
             ctx.restore();
         });
     }

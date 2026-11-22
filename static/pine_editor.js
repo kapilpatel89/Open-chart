@@ -78,6 +78,7 @@ const PINE_COLOR_MAP = {
     'color.yellow': '#fbc02d',
     'color.orange': '#ff9800',
     'color.purple': '#ab47bc',
+    'color.fuchsia': '#e040fb',
     'color.white': '#ffffff',
     'color.black': '#000000',
     'color.gray': '#787b86',
@@ -92,6 +93,8 @@ const PINE_COLOR_MAP = {
     'yellow': '#fbc02d',
     'orange': '#ff9800',
     'purple': '#ab47bc',
+    'fuchsia': '#e040fb',
+    'aqua': '#00f0ff',
     'white': '#ffffff',
     'black': '#000000'
 };
@@ -239,10 +242,31 @@ class ClientPineEngine {
 
         const inputs = {};
         const plots = [];
+        const signals = [];
         const strategyEntries = [];
         const lines = code.split('\n');
 
         let currentIfCond = null;
+
+        const getShiftedSeries = (token) => {
+            if (!token) return env.close;
+            token = token.trim();
+            const m = token.match(/^([a-zA-Z0-9_\.]+)(?:\[(\d+)\])?$/);
+            if (m) {
+                const baseName = m[1];
+                const offset = m[2] ? parseInt(m[2]) : 0;
+                const base = env[baseName] !== undefined ? env[baseName] : (baseName === 'high' ? highs : (baseName === 'low' ? lows : (baseName === 'close' ? closes : (baseName === 'open' ? opens : (baseName === 'volume' ? volumes : null)))));
+                if (base && Array.isArray(base)) {
+                    if (offset === 0) return base;
+                    const shifted = new Array(n).fill(null);
+                    for (let i = 0; i < n; i++) {
+                        shifted[i] = i >= offset ? base[i - offset] : base[0];
+                    }
+                    return shifted;
+                }
+            }
+            return env[token] !== undefined ? env[token] : null;
+        };
 
         const resolvePeriod = (rawArg, fallback) => {
             if (!rawArg) return fallback;
@@ -252,6 +276,207 @@ class ClientPineEngine {
             }
             const p = parseInt(trimmed);
             return (!isNaN(p) && p > 0) ? p : fallback;
+        };
+
+        const evalSeriesExpr = (exprStr) => {
+            if (!exprStr) return null;
+            exprStr = exprStr.trim();
+
+            // 1. Ternary condition: cond ? trueExpr : falseExpr
+            if (exprStr.includes('?') && exprStr.includes(':')) {
+                const qIdx = exprStr.indexOf('?');
+                const cIdx = exprStr.indexOf(':', qIdx);
+                const condPart = exprStr.substring(0, qIdx).trim();
+                const truePart = exprStr.substring(qIdx + 1, cIdx).trim();
+                const falsePart = exprStr.substring(cIdx + 1).trim();
+
+                const condVal = env[condPart] !== undefined ? env[condPart] : true;
+                if (typeof condVal === 'boolean') {
+                    const chosen = condVal ? truePart : falsePart;
+                    return chosen === 'na' ? new Array(n).fill(null) : evalSeriesExpr(chosen);
+                } else if (Array.isArray(condVal)) {
+                    const sTrue = truePart === 'na' ? null : evalSeriesExpr(truePart);
+                    const sFalse = falsePart === 'na' ? null : evalSeriesExpr(falsePart);
+                    const res = new Array(n).fill(null);
+                    for (let i = 0; i < n; i++) {
+                        res[i] = condVal[i] ? (sTrue ? sTrue[i] : null) : (sFalse ? sFalse[i] : null);
+                    }
+                    return res;
+                }
+            }
+
+            // 2. Compound boolean logic (and / or)
+            if (exprStr.includes(' and ') || exprStr.includes(' or ')) {
+                const partsAnd = exprStr.split(' and ');
+                const res = new Array(n).fill(true);
+                for (let b = 0; b < n; b++) {
+                    let barRes = true;
+                    for (const sub of partsAnd) {
+                        if (sub.includes(' or ')) {
+                            const orParts = sub.split(' or ');
+                            const orOk = orParts.some(p => {
+                                const s = evalSeriesExpr(p);
+                                return s && s[b];
+                            });
+                            if (!orOk) { barRes = false; break; }
+                        } else {
+                            const s = evalSeriesExpr(sub);
+                            if (!s || !s[b]) { barRes = false; break; }
+                        }
+                    }
+                    res[b] = barRes;
+                }
+                return res;
+            }
+
+            // 3. Comparisons (> , < , >= , <= , == , !=)
+            for (const op of ['>=', '<=', '==', '!=', '>', '<']) {
+                if (exprStr.includes(op) && !exprStr.startsWith('ta.')) {
+                    const [lStr, rStr] = exprStr.split(op, 2);
+                    const sL = evalSeriesExpr(lStr);
+                    const sR = evalSeriesExpr(rStr);
+                    const res = new Array(n).fill(false);
+                    for (let b = 0; b < n; b++) {
+                        const vl = sL ? sL[b] : null;
+                        const vr = sR ? sR[b] : null;
+                        if (vl !== null && vr !== null && isFinite(vl) && isFinite(vr)) {
+                            if (op === '>') res[b] = vl > vr;
+                            else if (op === '<') res[b] = vl < vr;
+                            else if (op === '>=') res[b] = vl >= vr;
+                            else if (op === '<=') res[b] = vl <= vr;
+                            else if (op === '==') res[b] = vl === vr;
+                            else if (op === '!=') res[b] = vl !== vr;
+                        }
+                    }
+                    return res;
+                }
+            }
+
+            // 4. Arithmetic + / - outside parentheses
+            let parenDepth = 0;
+            let splitIdx = -1;
+            let splitOp = null;
+            for (let c = exprStr.length - 1; c >= 0; c--) {
+                const ch = exprStr[c];
+                if (ch === ')') parenDepth++;
+                else if (ch === '(') parenDepth--;
+                else if (parenDepth === 0 && (ch === '+' || ch === '-') && c > 0 && c < exprStr.length - 1) {
+                    splitIdx = c;
+                    splitOp = ch;
+                    break;
+                }
+            }
+            if (splitIdx > -1) {
+                const sL = evalSeriesExpr(exprStr.substring(0, splitIdx));
+                const sR = evalSeriesExpr(exprStr.substring(splitIdx + 1));
+                const res = new Array(n).fill(null);
+                for (let i = 0; i < n; i++) {
+                    const vl = sL ? sL[i] : null;
+                    const vr = sR ? sR[i] : null;
+                    if (vl !== null && vr !== null && isFinite(vl) && isFinite(vr)) {
+                        res[i] = splitOp === '+' ? (vl + vr) : (vl - vr);
+                    }
+                }
+                return res;
+            }
+
+            // 5. Arithmetic * / / outside parentheses
+            parenDepth = 0;
+            splitIdx = -1;
+            splitOp = null;
+            for (let c = exprStr.length - 1; c >= 0; c--) {
+                const ch = exprStr[c];
+                if (ch === ')') parenDepth++;
+                else if (ch === '(') parenDepth--;
+                else if (parenDepth === 0 && (ch === '*' || ch === '/') && c > 0 && c < exprStr.length - 1) {
+                    splitIdx = c;
+                    splitOp = ch;
+                    break;
+                }
+            }
+            if (splitIdx > -1) {
+                const sL = evalSeriesExpr(exprStr.substring(0, splitIdx));
+                const sR = evalSeriesExpr(exprStr.substring(splitIdx + 1));
+                const res = new Array(n).fill(null);
+                for (let i = 0; i < n; i++) {
+                    const vl = sL ? sL[i] : null;
+                    const vr = sR ? sR[i] : null;
+                    if (vl !== null && vr !== null && isFinite(vl) && isFinite(vr)) {
+                        res[i] = splitOp === '*' ? (vl * vr) : (vr !== 0 ? (vl / vr) : null);
+                    }
+                }
+                return res;
+            }
+
+            // 6. Function calls
+            if (exprStr.startsWith('ta.highest')) {
+                const args = exprStr.match(/\((.*)\)/)?.[1]?.split(',') || [];
+                const src = getShiftedSeries(args[0]) || highs;
+                const period = resolvePeriod(args[1], 20);
+                const res = new Array(n).fill(null);
+                for (let i = period - 1; i < n; i++) {
+                    let maxV = -Infinity;
+                    for (let j = i - period + 1; j <= i; j++) if (src[j] > maxV) maxV = src[j];
+                    res[i] = maxV;
+                }
+                return res;
+            }
+
+            if (exprStr.startsWith('ta.lowest')) {
+                const args = exprStr.match(/\((.*)\)/)?.[1]?.split(',') || [];
+                const src = getShiftedSeries(args[0]) || lows;
+                const period = resolvePeriod(args[1], 20);
+                const res = new Array(n).fill(null);
+                for (let i = period - 1; i < n; i++) {
+                    let minV = Infinity;
+                    for (let j = i - period + 1; j <= i; j++) if (src[j] < minV) minV = src[j];
+                    res[i] = minV;
+                }
+                return res;
+            }
+
+            if (exprStr.startsWith('ta.atr')) {
+                const args = exprStr.match(/\((.*)\)/)?.[1]?.split(',') || [];
+                const period = resolvePeriod(args[0], 14);
+                return this.calculateATR(highs, lows, closes, period);
+            }
+
+            if (exprStr.startsWith('ta.ema')) {
+                const args = exprStr.match(/\((.*)\)/)?.[1]?.split(',') || [];
+                const src = getShiftedSeries(args[0]) || closes;
+                const period = resolvePeriod(args[1], 9);
+                return this.calculateEMA(src, period);
+            }
+
+            if (exprStr.startsWith('ta.sma')) {
+                const args = exprStr.match(/\((.*)\)/)?.[1]?.split(',') || [];
+                const src = getShiftedSeries(args[0]) || closes;
+                const period = resolvePeriod(args[1], 20);
+                return this.calculateSMA(src, period);
+            }
+
+            if (exprStr.startsWith('ta.rsi')) {
+                const args = exprStr.match(/\((.*)\)/)?.[1]?.split(',') || [];
+                const src = getShiftedSeries(args[0]) || closes;
+                const period = resolvePeriod(args[1], 14);
+                return this.calculateRSI(src, period);
+            }
+
+            // 7. Base variable or shifted variable
+            const shifted = getShiftedSeries(exprStr);
+            if (shifted) {
+                if (Array.isArray(shifted)) return shifted;
+                if (typeof shifted === 'number') return new Array(n).fill(shifted);
+                if (typeof shifted === 'boolean') return new Array(n).fill(shifted);
+            }
+
+            // 8. Number literal
+            const num = parseFloat(exprStr);
+            if (!isNaN(num)) {
+                return new Array(n).fill(num);
+            }
+
+            return null;
         };
 
         for (let idx = 0; idx < lines.length; idx++) {
@@ -301,8 +526,13 @@ class ClientPineEngine {
                 continue;
             }
 
+            // Ignore alertcondition
+            if (line.startsWith('alertcondition(')) {
+                continue;
+            }
+
             // Variable assignment
-            if (line.includes('=') && !line.startsWith('plot') && !line.startsWith('strategy')) {
+            if (line.includes('=') && !line.startsWith('plot') && !line.startsWith('strategy') && !line.startsWith('alertcondition')) {
                 const [varNameRaw, exprRaw] = line.split('=', 2);
                 const varName = varNameRaw.trim();
                 const expr = exprRaw.trim();
@@ -332,50 +562,8 @@ class ClientPineEngine {
                     continue;
                 }
 
-                if (expr.startsWith('ta.ema')) {
-                    const args = expr.match(/\((.*)\)/)?.[1]?.split(',') || [];
-                    const src = env[args[0]?.trim()] || closes;
-                    const period = resolvePeriod(args[1], 9);
-                    env[varName] = this.calculateEMA(src, period);
-                } else if (expr.startsWith('ta.sma')) {
-                    const args = expr.match(/\((.*)\)/)?.[1]?.split(',') || [];
-                    const src = env[args[0]?.trim()] || closes;
-                    const period = resolvePeriod(args[1], 20);
-                    env[varName] = this.calculateSMA(src, period);
-                } else if (expr.startsWith('ta.rsi')) {
-                    const args = expr.match(/\((.*)\)/)?.[1]?.split(',') || [];
-                    const src = env[args[0]?.trim()] || closes;
-                    const period = resolvePeriod(args[1], 14);
-                    env[varName] = this.calculateRSI(src, period);
-                } else if (expr.startsWith('ta.atr')) {
-                    const args = expr.match(/\((.*)\)/)?.[1]?.split(',') || [];
-                    const period = resolvePeriod(args[0], 14);
-                    env[varName] = this.calculateATR(highs, lows, closes, period);
-                } else if (expr.startsWith('ta.highest')) {
-                    const args = expr.match(/\((.*)\)/)?.[1]?.split(',') || [];
-                    const src = env[args[0]?.trim()] || highs;
-                    const period = resolvePeriod(args[1], 20);
-                    const res = new Array(n).fill(null);
-                    for (let i = period - 1; i < n; i++) {
-                        let maxV = -Infinity;
-                        for (let j = i - period + 1; j <= i; j++) if (src[j] > maxV) maxV = src[j];
-                        res[i] = maxV;
-                    }
-                    env[varName] = res;
-                } else if (expr.startsWith('ta.lowest')) {
-                    const args = expr.match(/\((.*)\)/)?.[1]?.split(',') || [];
-                    const src = env[args[0]?.trim()] || lows;
-                    const period = resolvePeriod(args[1], 20);
-                    const res = new Array(n).fill(null);
-                    for (let i = period - 1; i < n; i++) {
-                        let minV = Infinity;
-                        for (let j = i - period + 1; j <= i; j++) if (src[j] < minV) minV = src[j];
-                        res[i] = minV;
-                    }
-                    env[varName] = res;
-                } else {
-                    env[varName] = expr;
-                }
+                // General series / arithmetic / boolean expression evaluation
+                env[varName] = evalSeriesExpr(expr);
                 continue;
             }
 
@@ -385,9 +573,9 @@ class ClientPineEngine {
                 if (argsMatch) {
                     const inner = argsMatch[1];
                     const firstComma = inner.indexOf(',');
-                    const seriesName = (firstComma > -1 ? inner.substring(0, firstComma) : inner).trim();
+                    const seriesExpr = (firstComma > -1 ? inner.substring(0, firstComma) : inner).trim();
                     const titleMatch = line.match(/title\s*=\s*["']([^"']+)["']/) || line.match(/["']([^"']+)["']/);
-                    const title = titleMatch ? titleMatch[1] : seriesName;
+                    const title = titleMatch ? titleMatch[1] : seriesExpr;
 
                     const colorParamMatch = line.match(/color\s*=\s*([a-zA-Z0-9_\.#]+)/);
                     let rawColor = colorParamMatch ? colorParamMatch[1].trim() : '';
@@ -395,6 +583,8 @@ class ClientPineEngine {
 
                     const lwMatch = line.match(/linewidth\s*=\s*(\d+)/);
                     let linewidth = lwMatch ? parseInt(lwMatch[1]) : 2;
+
+                    const isStepline = line.includes('plot.style_stepline') || line.includes('style=plot.style_stepline');
 
                     // Custom style overrides from Settings modal
                     let isVisible = true;
@@ -404,25 +594,59 @@ class ClientPineEngine {
                         if (customStyles[title].visible !== undefined) isVisible = customStyles[title].visible;
                     }
 
-                    const dataSeries = env[seriesName];
+                    const dataSeries = evalSeriesExpr(seriesExpr);
                     if (dataSeries && Array.isArray(dataSeries) && isVisible) {
                         plots.push({
-                            id: seriesName,
+                            id: title,
                             title: title,
                             rawTitle: title,
                             color: color,
                             linewidth: linewidth,
+                            style: isStepline ? 'stepline' : 'line',
                             visible: isVisible,
                             pane: 'main',
                             data: times.map((t, i) => ({ time: t, value: dataSeries[i] })).filter(d => d.value !== null && isFinite(d.value))
                         });
                     }
                 }
+                continue;
+            }
+
+            // plotshape()
+            if (line.startsWith('plotshape(')) {
+                const argsMatch = line.match(/plotshape\((.*)\)/);
+                if (argsMatch) {
+                    const inner = argsMatch[1];
+                    const parts = inner.split(',');
+                    const condName = parts[0].trim();
+                    const condData = env[condName] || evalSeriesExpr(condName);
+                    const titleMatch = line.match(/title\s*=\s*["']([^"']+)["']/);
+                    const textMatch = line.match(/text\s*=\s*["']([^"']+)["']/);
+                    const colorMatch = line.match(/color\s*=\s*([a-zA-Z0-9_\.#]+)/);
+                    const rawCol = colorMatch ? colorMatch[1].trim() : '';
+                    const color = PINE_COLOR_MAP[rawCol] || rawCol || '#ffaa00';
+                    const isBelow = line.includes('location.belowbar') || line.includes('shape.triangleup');
+
+                    if (condData && Array.isArray(condData)) {
+                        for (let i = 0; i < n; i++) {
+                            if (condData[i]) {
+                                signals.push({
+                                    time: times[i],
+                                    type: isBelow ? 'BUY' : 'SELL',
+                                    price: isBelow ? lows[i] * 0.998 : highs[i] * 1.002,
+                                    label: textMatch ? textMatch[1] : (titleMatch ? titleMatch[1] : 'SIGNAL'),
+                                    color: color,
+                                    shape: isBelow ? 'triangleup' : 'triangledown'
+                                });
+                            }
+                        }
+                    }
+                }
+                continue;
             }
         }
 
         // Backtesting execution & signals
-        const signals = [];
         const trades = [];
         let position = null;
         let equity = 10000.0;
@@ -1517,4 +1741,11 @@ plot(support, title="Support", color=color.green, linewidth=2)
             this.executeAllActiveIndicators();
         });
     }
+}
+
+if (typeof window !== 'undefined') {
+    window.ClientPineEngine = ClientPineEngine;
+}
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { ClientPineEngine, PineEditor };
 }
