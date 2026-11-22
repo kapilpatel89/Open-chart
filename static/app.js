@@ -217,14 +217,14 @@ class OpenChartApp {
             if (el) el.addEventListener('change', () => this.applyQuickIndicators());
         });
 
-        // Chart Floating Controls
-        document.getElementById('btn-reset-view').addEventListener('click', () => this.chart.resetView());
-        document.getElementById('btn-zoom-in').addEventListener('click', () => {
+        // Chart Controls (Optional)
+        document.getElementById('btn-reset-view')?.addEventListener('click', () => this.chart.resetView());
+        document.getElementById('btn-zoom-in')?.addEventListener('click', () => {
             this.chart.candleWidth = Math.min(60, this.chart.candleWidth * 1.25);
             this.chart.candleGap = Math.round(this.chart.candleWidth * 0.4);
             this.chart.render();
         });
-        document.getElementById('btn-zoom-out').addEventListener('click', () => {
+        document.getElementById('btn-zoom-out')?.addEventListener('click', () => {
             this.chart.candleWidth = Math.max(3, this.chart.candleWidth * 0.8);
             this.chart.candleGap = Math.round(this.chart.candleWidth * 0.4);
             this.chart.render();
@@ -936,6 +936,179 @@ class OpenChartApp {
                 this.pineIDE.executeScript(this.currentPair, this.currentInterval);
             }
         }
+        this.renderPaneTrendBar(0);
+    }
+
+    calculateMultiTimeframeTrends(candles, baseTf = '1h') {
+        const timeframes = ['1m', '5m', '15m', '1h', '4h', '1d'];
+        const result = {};
+        timeframes.forEach(tf => result[tf] = 'neutral');
+
+        if (!candles || candles.length < 5) return result;
+
+        const closes = candles.map(c => c.close);
+        const highs = candles.map(c => c.high);
+        const lows = candles.map(c => c.low);
+        const n = closes.length;
+
+        // Detect trend using EMA crossover & momentum slope
+        const detectTrend = (cList, hList, lList) => {
+            const len = cList.length;
+            if (len < 5) return 'neutral';
+
+            let emaFast = cList[0], emaSlow = cList[0];
+            const kFast = 2 / (7 + 1);
+            const kSlow = 2 / (18 + 1);
+            for (let i = 1; i < len; i++) {
+                emaFast = (cList[i] - emaFast) * kFast + emaFast;
+                emaSlow = (cList[i] - emaSlow) * kSlow + emaSlow;
+            }
+
+            const lastClose = cList[len - 1];
+            const recent = cList.slice(-5);
+            const slope = (recent[recent.length - 1] - recent[0]) / (recent[0] || 1);
+
+            // Strong Uptrend
+            if (emaFast > emaSlow && lastClose >= emaFast && slope >= 0) return 'up';
+            // Strong Downtrend
+            if (emaFast < emaSlow && lastClose <= emaFast && slope <= 0) return 'down';
+
+            // Mild Uptrend
+            if (emaFast > emaSlow) return 'up';
+            // Mild Downtrend
+            if (emaFast < emaSlow) return 'down';
+
+            return 'neutral';
+        };
+
+        const baseTrend = detectTrend(closes, highs, lows);
+        result[baseTf] = baseTrend;
+
+        const tfSeconds = {
+            '1m': 60,
+            '5m': 300,
+            '15m': 900,
+            '1h': 3600,
+            '4h': 14400,
+            '1d': 86400
+        };
+
+        const baseSec = tfSeconds[baseTf] || 3600;
+
+        for (const tf of timeframes) {
+            if (tf === baseTf) continue;
+            const sec = tfSeconds[tf];
+
+            if (sec < baseSec) {
+                // Lower TF: use smaller subset of recent candles
+                const count = Math.max(5, Math.min(25, Math.round(n * (sec / baseSec))));
+                result[tf] = detectTrend(closes.slice(-count), highs.slice(-count), lows.slice(-count));
+            } else {
+                // Higher TF: aggregate bars
+                const factor = Math.max(2, Math.round(sec / baseSec));
+                const aggCloses = [];
+                const aggHighs = [];
+                const aggLows = [];
+                for (let i = 0; i < n; i += factor) {
+                    const cChunk = closes.slice(i, i + factor);
+                    const hChunk = highs.slice(i, i + factor);
+                    const lChunk = lows.slice(i, i + factor);
+                    if (cChunk.length) {
+                        aggCloses.push(cChunk[cChunk.length - 1]);
+                        aggHighs.push(Math.max(...hChunk));
+                        aggLows.push(Math.min(...lChunk));
+                    }
+                }
+                result[tf] = aggCloses.length >= 5 ? detectTrend(aggCloses, aggHighs, aggLows) : baseTrend;
+            }
+        }
+
+        return result;
+    }
+
+    renderPaneTrendBar(paneId = 0) {
+        let container = document.getElementById(`pane-tf-trend-${paneId}`);
+        if (!container) {
+            const paneEl = document.getElementById(`pane-${paneId}`);
+            if (paneEl) {
+                container = document.createElement('div');
+                container.className = 'pane-tf-trend-bar';
+                container.id = `pane-tf-trend-${paneId}`;
+                paneEl.appendChild(container);
+            }
+        }
+        if (!container) return;
+
+        const pane = this.panes?.get(paneId);
+        const currentTf = (pane ? pane.interval : this.currentInterval) || '1h';
+        const chart = pane ? pane.chart : this.chart;
+        const candles = chart?.candles || [];
+
+        const timeframes = [
+            { tf: '1m', label: '1m' },
+            { tf: '5m', label: '5m' },
+            { tf: '15m', label: '15m' },
+            { tf: '1h', label: '1H' },
+            { tf: '4h', label: '4H' },
+            { tf: '1d', label: '1D' }
+        ];
+
+        const trends = this.calculateMultiTimeframeTrends(candles, currentTf);
+
+        container.innerHTML = timeframes.map(item => {
+            const tr = trends[item.tf] || 'neutral';
+            const isAct = item.tf.toLowerCase() === currentTf.toLowerCase();
+            let icon = '▬';
+            let titleText = `${item.label}: Sideways / Neutral`;
+            if (tr === 'up') {
+                icon = '▲';
+                titleText = `${item.label}: Uptrend (Bullish)`;
+            } else if (tr === 'down') {
+                icon = '▼';
+                titleText = `${item.label}: Downtrend (Bearish)`;
+            }
+
+            return `
+                <button class="tf-trend-btn trend-${tr} ${isAct ? 'active' : ''}" 
+                        data-tf="${item.tf}" 
+                        data-pane="${paneId}" 
+                        title="${titleText} • Click to switch timeframe">
+                    <span class="tf-name">${item.label}</span>
+                    <span class="tf-arrow">${icon}</span>
+                </button>
+            `;
+        }).join('');
+
+        container.querySelectorAll('.tf-trend-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const tf = btn.dataset.tf;
+                if (!tf) return;
+                if (paneId === 0 || !this.panes || this.panes.size <= 1) {
+                    this.switchTimeframe(tf);
+                } else {
+                    this.switchPaneTimeframe(paneId, tf);
+                }
+            });
+        });
+    }
+
+    switchPaneTimeframe(paneId, tf) {
+        const p = this.panes?.get(paneId);
+        if (p) {
+            p.interval = tf;
+            p.chart.timeframe = tf;
+            const tfSelect = document.getElementById(`pane-tf-${paneId}`);
+            if (tfSelect) tfSelect.value = tf;
+            this.loadPaneCandles(paneId);
+            if (paneId === this.activePaneId) {
+                this.currentInterval = tf;
+                window.currentInterval = tf;
+                document.querySelectorAll('.tf-btn').forEach(b => {
+                    b.classList.toggle('active', b.dataset.tf.toLowerCase() === tf.toLowerCase());
+                });
+            }
+        }
     }
 
     getKnownBasePrice(pair) {
@@ -1110,6 +1283,7 @@ class OpenChartApp {
                 this.updateTickerHeader();
                 this.recalculateTpSlPreviews();
                 this.applyQuickIndicators();
+                this.renderPaneTrendBar(0);
             }
         } catch (e) {
             console.error("Error loading candles:", e);
@@ -1676,6 +1850,7 @@ class OpenChartApp {
                         </select>
                         <button class="pane-action-btn" title="Auto Scale">⟲</button>
                     </div>
+                    <div class="pane-tf-trend-bar" id="pane-tf-trend-${id}"></div>
                     <canvas id="chart-canvas-${id}"></canvas>
                 `;
 
@@ -1892,6 +2067,7 @@ class OpenChartApp {
             if (paneId === this.activePaneId) {
                 this.updateTickerHeader();
             }
+            this.renderPaneTrendBar(paneId);
         }
     }
 
@@ -1910,6 +2086,11 @@ class OpenChartApp {
         });
         if (this.cleanSymbol(this.currentPair) === cleanIncoming) {
             this.updateTickerHeader();
+        }
+        if (!this.lastTrendUpdate || Date.now() - this.lastTrendUpdate > 4000) {
+            this.lastTrendUpdate = Date.now();
+            this.renderPaneTrendBar(0);
+            this.panes.forEach((_, id) => this.renderPaneTrendBar(id));
         }
     }
 

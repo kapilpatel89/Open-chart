@@ -84,10 +84,12 @@ class OpenChart3D {
         this.canvas.addEventListener('dblclick', (e) => this.onDoubleClick(e));
         this.canvas.addEventListener('contextmenu', (e) => this.onContextMenu(e));
 
-        // Touch Events (Mobiles & Tablets)
+        // Touch Events (Mobiles & Tablets with Pinch Zoom & Pan)
+        this.canvas.style.touchAction = 'none';
         this.canvas.addEventListener('touchstart', (e) => this.onTouchStart(e), { passive: false });
         this.canvas.addEventListener('touchmove', (e) => this.onTouchMove(e), { passive: false });
-        this.canvas.addEventListener('touchend', () => this.onMouseUp());
+        this.canvas.addEventListener('touchend', (e) => this.onTouchEnd(e), { passive: false });
+        this.canvas.addEventListener('touchcancel', (e) => this.onTouchEnd(e), { passive: false });
 
         this.startRenderLoop();
     }
@@ -1920,14 +1922,45 @@ class OpenChart3D {
         }
     }
 
-    // Touch Support
+    // Enhanced Touch Support (Pan, Pinch Zoom, Long Press Context Menu)
     onTouchStart(e) {
         e.preventDefault();
+        const rect = this.canvas.getBoundingClientRect();
+
+        // 1. Double touch -> Pinch to zoom
+        if (e.touches.length === 2) {
+            this.clearTouchLongPress();
+            this.isDraggingChart = false;
+            this.isDraggingTimeAxis = false;
+            this.isDraggingPriceAxis = false;
+            this.initialPinchDist = Math.hypot(
+                e.touches[0].clientX - e.touches[1].clientX,
+                e.touches[0].clientY - e.touches[1].clientY
+            );
+            this.initialPinchCandleWidth = this.candleWidth;
+            return;
+        }
+
+        // 2. Single touch -> Pan (left/right & up/down), Axis scale, or Long Press for Context Menu
         if (e.touches.length === 1) {
             const touch = e.touches[0];
-            const rect = this.canvas.getBoundingClientRect();
             const x = touch.clientX - rect.left;
             const y = touch.clientY - rect.top;
+
+            this.touchStartX = touch.clientX;
+            this.touchStartY = touch.clientY;
+            this.clearTouchLongPress();
+
+            // Long-press detection (520ms hold without moving -> open context menu on mobile)
+            this.touchLongPressTimer = setTimeout(() => {
+                const ev = new MouseEvent('contextmenu', {
+                    bubbles: true,
+                    cancelable: true,
+                    clientX: touch.clientX,
+                    clientY: touch.clientY
+                });
+                this.canvas.dispatchEvent(ev);
+            }, 520);
 
             if (y >= this.height - this.timeAxisHeight) {
                 this.isDraggingTimeAxis = true;
@@ -1942,17 +1975,45 @@ class OpenChart3D {
                 this.dragStartX = x;
                 this.dragStartY = y;
                 this.initialOffsetX = this.offsetX;
+                this.initialUserPriceOffset = this.userPriceOffset || 0;
             }
+        }
+    }
+
+    clearTouchLongPress() {
+        if (this.touchLongPressTimer) {
+            clearTimeout(this.touchLongPressTimer);
+            this.touchLongPressTimer = null;
         }
     }
 
     onTouchMove(e) {
         e.preventDefault();
+        const rect = this.canvas.getBoundingClientRect();
+
+        // Handle pinch-to-zoom
+        if (e.touches.length === 2 && this.initialPinchDist) {
+            this.clearTouchLongPress();
+            const curDist = Math.hypot(
+                e.touches[0].clientX - e.touches[1].clientX,
+                e.touches[0].clientY - e.touches[1].clientY
+            );
+            const ratio = curDist / (this.initialPinchDist || 1);
+            this.candleWidth = Math.max(this.options.minCandleWidth, Math.min(this.options.maxCandleWidth, this.initialPinchCandleWidth * ratio));
+            this.candleGap = Math.max(1, Math.round(this.candleWidth * 0.4));
+            this.render();
+            return;
+        }
+
         if (e.touches.length === 1) {
             const touch = e.touches[0];
-            const rect = this.canvas.getBoundingClientRect();
             const x = touch.clientX - rect.left;
             const y = touch.clientY - rect.top;
+
+            // Cancel long press if finger moved more than 8px
+            if (this.touchStartX && Math.hypot(touch.clientX - this.touchStartX, touch.clientY - this.touchStartY) > 8) {
+                this.clearTouchLongPress();
+            }
 
             if (this.isDraggingTimeAxis) {
                 const deltaX = x - this.axisDragStartX;
@@ -1967,11 +2028,26 @@ class OpenChart3D {
                 this.autoScale = false;
                 this.render();
             } else if (this.isDraggingChart) {
+                // Free 2D Pan on touch: Left/Right + Up/Down!
                 const deltaX = this.dragStartX - x;
                 this.offsetX = Math.max(0, this.initialOffsetX + deltaX);
+
+                const deltaY = y - this.dragStartY;
+                const pScale = this.priceScale || 1;
+                this.userPriceOffset = (this.initialUserPriceOffset || 0) + (deltaY / pScale);
+                this.autoScale = false;
                 this.render();
             }
         }
+    }
+
+    onTouchEnd(e) {
+        this.clearTouchLongPress();
+        this.initialPinchDist = null;
+        this.isDraggingChart = false;
+        this.isDraggingTimeAxis = false;
+        this.isDraggingPriceAxis = false;
+        this.onMouseUp();
     }
 }
 
