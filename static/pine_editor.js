@@ -581,6 +581,9 @@ class PineScriptIDE {
         this.currentDiagnostic = null;
         this.customInputs = {};
         this.customStyles = {};
+        this.activeIndicators = [];
+        this.savedScripts = [];
+        this.currentScriptId = null;
 
         this.init();
     }
@@ -610,41 +613,263 @@ class PineScriptIDE {
         if (verifyBtn) {
             verifyBtn.addEventListener('click', () => this.verifyScriptUI());
         }
+
+        // Save Script Buttons & Modals
+        const saveAsBtn = document.getElementById('btn-save-script-as');
+        if (saveAsBtn) {
+            saveAsBtn.addEventListener('click', () => this.openSaveScriptModal());
+        }
+
+        const confirmSaveBtn = document.getElementById('btn-confirm-save-script');
+        if (confirmSaveBtn) {
+            confirmSaveBtn.addEventListener('click', () => {
+                const nameInp = document.getElementById('save-script-name-input');
+                const name = (nameInp ? nameInp.value : '').trim();
+                this.saveCurrentScript(name || "Custom Indicator");
+            });
+        }
+
+        const cancelSaveBtn = document.getElementById('btn-cancel-save-script');
+        const closeSaveBtn = document.getElementById('btn-close-save-modal');
+        const saveBackdrop = document.getElementById('save-modal-backdrop');
+        [cancelSaveBtn, closeSaveBtn, saveBackdrop].forEach(el => {
+            if (el) el.addEventListener('click', () => this.closeSaveScriptModal());
+        });
+
+        const deleteSavedBtn = document.getElementById('btn-delete-saved-script');
+        if (deleteSavedBtn) {
+            deleteSavedBtn.addEventListener('click', () => this.deleteCurrentSavedScript());
+        }
+
+        // Add to Chart vs Replace Chart Buttons
+        const addPineBtn = document.getElementById('btn-add-pine');
+        if (addPineBtn) {
+            addPineBtn.addEventListener('click', () => this.addCurrentScriptToChart());
+        }
+
+        const runPineBtn = document.getElementById('btn-run-pine');
+        if (runPineBtn) {
+            runPineBtn.addEventListener('click', () => this.replaceChartIndicators());
+        }
+
+        // Template & Saved Script Select Dropdown
+        const templateSelect = document.getElementById('pine-template-select');
+        if (templateSelect) {
+            templateSelect.addEventListener('change', (e) => {
+                this.handleScriptSelection(e.target.value);
+            });
+        }
+
+        // Auto-Trade Checkbox
+        const autoTradeCheck = document.getElementById('check-auto-trade');
+        if (autoTradeCheck) {
+            autoTradeCheck.addEventListener('change', (e) => {
+                this.autoTradeEnabled = e.target.checked;
+            });
+        }
+
+        // Ctrl+S / Cmd+S in editor opens save modal
+        this.editorEl.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+                e.preventDefault();
+                this.openSaveScriptModal();
+            }
+        });
+
+        // Load saved scripts from localStorage
+        this.loadSavedScripts();
+    }
+
+    loadSavedScripts() {
+        try {
+            const raw = localStorage.getItem('openchart_user_scripts');
+            this.savedScripts = raw ? JSON.parse(raw) : [];
+        } catch (e) {
+            this.savedScripts = [];
+        }
+        this.renderSavedScriptsDropdown();
+    }
+
+    renderSavedScriptsDropdown() {
+        const groupEl = document.getElementById('pine-saved-scripts-group');
+        const deleteBtn = document.getElementById('btn-delete-saved-script');
+        if (!groupEl) return;
+
+        groupEl.innerHTML = '';
+        if (this.savedScripts && this.savedScripts.length) {
+            groupEl.innerHTML = this.savedScripts.map(s => `
+                <option value="user_${s.id}">${s.name}</option>
+            `).join('');
+        }
+
+        const templateSelect = document.getElementById('pine-template-select');
+        const isUserScript = templateSelect && templateSelect.value && templateSelect.value.startsWith('user_');
+        if (deleteBtn) {
+            deleteBtn.style.display = isUserScript ? 'inline-block' : 'none';
+        }
+    }
+
+    openSaveScriptModal() {
+        const modal = document.getElementById('save-script-modal');
+        const input = document.getElementById('save-script-name-input');
+        if (!modal) return;
+
+        // Auto-detect title from script code
+        let suggestedName = "My Indicator";
+        const code = this.editorEl ? this.editorEl.value : '';
+        const m = code.match(/(?:indicator|strategy)\(\s*["']([^"']+)["']/);
+        if (m && m[1]) {
+            suggestedName = m[1];
+        }
+
+        if (this.currentScriptId) {
+            const existing = this.savedScripts.find(s => s.id === this.currentScriptId);
+            if (existing) suggestedName = existing.name;
+        }
+
+        if (input) {
+            input.value = suggestedName;
+            setTimeout(() => {
+                input.focus();
+                input.select();
+            }, 50);
+        }
+
+        modal.classList.remove('hidden');
+    }
+
+    closeSaveScriptModal() {
+        const modal = document.getElementById('save-script-modal');
+        if (modal) modal.classList.add('hidden');
+    }
+
+    saveCurrentScript(name) {
+        if (!name) name = "My Script";
+        const code = this.editorEl.value;
+
+        // Check if updating existing or creating new
+        let scriptItem = null;
+        if (this.currentScriptId) {
+            scriptItem = this.savedScripts.find(s => s.id === this.currentScriptId);
+        }
+
+        if (scriptItem) {
+            scriptItem.name = name;
+            scriptItem.code = code;
+            scriptItem.inputs = Object.assign({}, this.customInputs);
+            scriptItem.styles = Object.assign({}, this.customStyles);
+            scriptItem.updatedAt = Date.now();
+        } else {
+            const newId = 'scr_' + Date.now().toString(36);
+            scriptItem = {
+                id: newId,
+                name: name,
+                code: code,
+                inputs: Object.assign({}, this.customInputs),
+                styles: Object.assign({}, this.customStyles),
+                createdAt: Date.now()
+            };
+            this.savedScripts.push(scriptItem);
+            this.currentScriptId = newId;
+        }
+
+        try {
+            localStorage.setItem('openchart_user_scripts', JSON.stringify(this.savedScripts));
+        } catch (e) {
+            console.error("Failed to save scripts to localStorage:", e);
+        }
+
+        this.closeSaveScriptModal();
+        this.renderSavedScriptsDropdown();
+
+        // Select the saved script in dropdown
+        const templateSelect = document.getElementById('pine-template-select');
+        if (templateSelect) {
+            templateSelect.value = `user_${scriptItem.id}`;
+        }
+        const deleteBtn = document.getElementById('btn-delete-saved-script');
+        if (deleteBtn) deleteBtn.style.display = 'inline-block';
+
+        this.showSuccessToast(`💾 Script "${name}" saved to your library!`);
+    }
+
+    deleteCurrentSavedScript() {
+        if (!this.currentScriptId) return;
+        const target = this.savedScripts.find(s => s.id === this.currentScriptId);
+        const name = target ? target.name : 'this script';
+        if (!confirm(`Are you sure you want to delete "${name}" from your saved scripts?`)) {
+            return;
+        }
+
+        this.savedScripts = this.savedScripts.filter(s => s.id !== this.currentScriptId);
+        try {
+            localStorage.setItem('openchart_user_scripts', JSON.stringify(this.savedScripts));
+        } catch (e) {}
+
+        this.currentScriptId = null;
+        this.renderSavedScriptsDropdown();
+
+        const templateSelect = document.getElementById('pine-template-select');
+        if (templateSelect) {
+            templateSelect.value = 'ema_ribbon';
+            this.loadTemplate('ema_ribbon');
+        }
+        this.showSuccessToast(`🗑 Deleted "${name}" from saved scripts.`);
+    }
+
+    handleScriptSelection(key) {
+        if (!key) return;
+        if (key.startsWith('user_')) {
+            const sId = key.replace('user_', '');
+            const script = this.savedScripts.find(s => s.id === sId);
+            if (script) {
+                this.currentScriptId = sId;
+                this.editorEl.value = script.code;
+                this.customInputs = Object.assign({}, script.inputs || {});
+                this.customStyles = Object.assign({}, script.styles || {});
+                this.hideDiagnostic();
+                const deleteBtn = document.getElementById('btn-delete-saved-script');
+                if (deleteBtn) deleteBtn.style.display = 'inline-block';
+                return;
+            }
+        }
+
+        this.currentScriptId = null;
+        const deleteBtn = document.getElementById('btn-delete-saved-script');
+        if (deleteBtn) deleteBtn.style.display = 'none';
+        this.loadTemplate(key);
     }
 
     addNewScript() {
+        this.currentScriptId = null;
         const boilerplate = `//@version=5
-strategy("My Custom Strategy", overlay=true)
+indicator("Simple Support Resistance", overlay=true)
 
-// 1. Calculate Indicators
-fastEMA = ta.ema(close, 14)
-slowEMA = ta.ema(close, 28)
-rsi = ta.rsi(close, 14)
+length = input.int(10, title="Lookback Period")
 
-// 2. Plot on Chart
-plot(fastEMA, "Fast EMA", color=#00f0ff, linewidth=2)
-plot(slowEMA, "Slow EMA", color=#ffaa00, linewidth=2)
+resistance = ta.highest(high, length)
+support = ta.lowest(low, length)
 
-// 3. Strategy Entry & Exit Logic
-longCondition = ta.crossover(fastEMA, slowEMA) and rsi < 70
-if (longCondition)
-    strategy.entry("Long", strategy.long)
-
-shortCondition = ta.crossunder(fastEMA, slowEMA) and rsi > 30
-if (shortCondition)
-    strategy.entry("Short", strategy.short)
+plot(resistance, title="Resistance", color=color.red, linewidth=2)
+plot(support, title="Support", color=color.green, linewidth=2)
 `;
         this.editorEl.value = boilerplate;
+        this.customInputs = {};
+        this.customStyles = {};
         this.hideDiagnostic();
         this.editorEl.focus();
         this.editorEl.setSelectionRange(0, 0);
+
+        const deleteBtn = document.getElementById('btn-delete-saved-script');
+        if (deleteBtn) deleteBtn.style.display = 'none';
     }
 
     loadTemplate(templateKey) {
         if (PINE_TEMPLATES[templateKey]) {
             this.editorEl.value = PINE_TEMPLATES[templateKey];
+            this.customInputs = {};
+            this.customStyles = {};
             this.hideDiagnostic();
-            this.executeScript();
         }
     }
 
@@ -813,9 +1038,13 @@ if (shortCondition)
     }
 
     async executeScript(pair, interval) {
+        return this.addCurrentScriptToChart();
+    }
+
+    async addCurrentScriptToChart() {
         const code = this.editorEl.value;
-        const currentPair = pair || window.currentPair || 'B-BTC_USDT';
-        const currentInterval = interval || window.currentInterval || '1h';
+        const currentPair = window.currentPair || 'B-BTC_USDT';
+        const currentInterval = window.currentInterval || '1h';
 
         // 1. Verify syntax before executing
         const diag = await this.verifyScript(code);
@@ -832,63 +1061,7 @@ if (shortCondition)
             candles = window.app.chart ? window.app.chart.candles : null;
         }
 
-        // 3. Instant In-Browser Client Execution (0ms - 100% Offline & GitHub Pages Safe!)
-        let clientSuccess = false;
-        if (candles && candles.length) {
-            try {
-                const clientResult = ClientPineEngine.executeScript(code, candles, this.customInputs, this.customStyles);
-                if (clientResult && !clientResult.error) {
-                    this.currentResults = clientResult;
-                    if (this.chart) {
-                        if (clientResult.plots) this.chart.setIndicators(clientResult.plots);
-                        if (clientResult.signals) this.chart.setSignals(clientResult.signals);
-                    }
-                    this.renderIndicatorLegend(clientResult);
-                    this.updateBacktestUI(clientResult.metrics, clientResult.trades);
-                    clientSuccess = true;
-                }
-            } catch (cErr) {
-                console.warn("[Pine IDE] Client compiler info:", cErr);
-            }
-        }
-
-        // 4. Try backend execution as non-blocking enhancement if available
-        try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 2500);
-            const resp = await fetch('/api/pine/execute', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    pair: currentPair,
-                    interval: currentInterval,
-                    code: code
-                }),
-                signal: controller.signal
-            });
-            clearTimeout(timeoutId);
-
-            if (resp.ok) {
-                const data = await resp.json();
-                if (!data.error) {
-                    this.currentResults = data;
-                    if (this.chart) {
-                        if (data.plots) this.chart.setIndicators(data.plots);
-                        if (data.signals) this.chart.setSignals(data.signals);
-                    }
-                    if (this.autoTradeEnabled && data.signals && data.signals.length > 0) {
-                        const lastSig = data.signals[data.signals.length - 1];
-                        this.handleAutoTradeSignal(lastSig, currentPair);
-                    }
-                    this.updateBacktestUI(data.metrics, data.trades);
-                    return;
-                }
-            }
-        } catch (backendErr) {
-            // Backend offline/unreachable on GitHub Pages; smoothly handled by ClientPineEngine
-        }
-
-        if (!clientSuccess && (!candles || !candles.length)) {
+        if (!candles || !candles.length) {
             this.showDiagnostic({
                 valid: false,
                 error: "Candlestick data is loading. Please wait a moment and click Run again.",
@@ -897,17 +1070,186 @@ if (shortCondition)
                 hint: "Ensure candles are loaded on the active chart pane.",
                 suggestion: ""
             });
+            return;
         }
+
+        // 3. Extract script title or fallback
+        const metaMatch = code.match(/(?:indicator|strategy)\(\s*["']([^"']+)["']/);
+        let title = metaMatch ? metaMatch[1] : 'Pine Indicator';
+        if (this.currentScriptId) {
+            const saved = this.savedScripts.find(s => s.id === this.currentScriptId);
+            if (saved && saved.name) title = saved.name;
+        }
+
+        // 4. Instant client-side compile & run
+        let result = null;
+        try {
+            result = ClientPineEngine.executeScript(code, candles, this.customInputs, this.customStyles);
+        } catch (cErr) {
+            console.warn("[Pine IDE] Client compiler error:", cErr);
+        }
+
+        // 5. Fallback backend compile if needed
+        if (!result || result.error) {
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 2500);
+                const resp = await fetch('/api/pine/execute', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        pair: currentPair,
+                        interval: currentInterval,
+                        code: code
+                    }),
+                    signal: controller.signal
+                });
+                clearTimeout(timeoutId);
+                if (resp.ok) {
+                    const data = await resp.json();
+                    if (!data.error) result = data;
+                }
+            } catch (backendErr) {}
+        }
+
+        if (!result || (!result.plots && !result.signals)) {
+            this.showDiagnostic({
+                valid: false,
+                error: "No plot lines or strategy signals were produced by this script.",
+                line: 1,
+                line_text: "",
+                hint: "Ensure your script calls plot(...) or strategy.entry(...).",
+                suggestion: ""
+            });
+            return;
+        }
+
+        this.currentResults = result;
+
+        // 6. Add or update in activeIndicators collection
+        let indEntry = this.activeIndicators.find(ind => ind.name === title || ind.id === this.currentScriptId);
+        if (indEntry) {
+            indEntry.name = title;
+            indEntry.code = code;
+            indEntry.plots = result.plots || [];
+            indEntry.signals = result.signals || [];
+            indEntry.inputs = result.inputs || {};
+            indEntry.customInputs = Object.assign({}, this.customInputs);
+            indEntry.customStyles = Object.assign({}, this.customStyles);
+            indEntry.metrics = result.metrics;
+            indEntry.trades = result.trades;
+            indEntry.visible = true;
+        } else {
+            const indId = this.currentScriptId || ('ind_' + Date.now().toString(36));
+            indEntry = {
+                id: indId,
+                name: title,
+                code: code,
+                plots: result.plots || [],
+                signals: result.signals || [],
+                inputs: result.inputs || {},
+                customInputs: Object.assign({}, this.customInputs),
+                customStyles: Object.assign({}, this.customStyles),
+                metrics: result.metrics,
+                trades: result.trades,
+                visible: true
+            };
+            this.activeIndicators.push(indEntry);
+        }
+
+        if (this.autoTradeEnabled && result.signals && result.signals.length > 0) {
+            const lastSig = result.signals[result.signals.length - 1];
+            this.handleAutoTradeSignal(lastSig, currentPair);
+        }
+
+        this.updateBacktestUI(result.metrics, result.trades);
+        this.applyActiveIndicatorsToChart();
+        this.showSuccessToast(`✓ "${title}" added to chart!`);
+    }
+
+    replaceChartIndicators() {
+        this.activeIndicators = [];
+        this.addCurrentScriptToChart();
+    }
+
+    removeActiveIndicator(id) {
+        this.activeIndicators = this.activeIndicators.filter(ind => ind.id !== id);
+        this.applyActiveIndicatorsToChart();
+    }
+
+    toggleActiveIndicator(id) {
+        const ind = this.activeIndicators.find(i => i.id === id);
+        if (ind) {
+            ind.visible = !ind.visible;
+            this.applyActiveIndicatorsToChart();
+        }
+    }
+
+    applyActiveIndicatorsToChart() {
+        let combinedPlots = [];
+        let combinedSignals = [];
+
+        this.activeIndicators.forEach(ind => {
+            if (ind.visible !== false) {
+                if (ind.plots && Array.isArray(ind.plots)) {
+                    combinedPlots = combinedPlots.concat(ind.plots);
+                }
+                if (ind.signals && Array.isArray(ind.signals)) {
+                    combinedSignals = combinedSignals.concat(ind.signals);
+                }
+            }
+        });
+
+        // Apply to main chart
+        if (this.chart) {
+            this.chart.setIndicators(combinedPlots);
+            this.chart.setSignals(combinedSignals);
+        }
+
+        // Apply to all chart panes in multi-chart layouts
+        if (window.app && window.app.panes) {
+            window.app.panes.forEach(pane => {
+                if (pane.chart) {
+                    pane.chart.setIndicators(combinedPlots);
+                    pane.chart.setSignals(combinedSignals);
+                }
+            });
+        }
+
+        this.renderIndicatorLegend();
+    }
+
+    executeAllActiveIndicators(pair, interval) {
+        if (!this.activeIndicators || !this.activeIndicators.length) return;
+
+        let candles = (this.chart && this.chart.candles) ? this.chart.candles : null;
+        if ((!candles || !candles.length) && window.app && window.app.chart) {
+            candles = window.app.chart.candles;
+        }
+        if (!candles || !candles.length) return;
+
+        this.activeIndicators.forEach(ind => {
+            try {
+                const res = ClientPineEngine.executeScript(ind.code, candles, ind.customInputs, ind.customStyles);
+                if (res && !res.error) {
+                    ind.plots = res.plots || [];
+                    ind.signals = res.signals || [];
+                    ind.inputs = res.inputs || ind.inputs;
+                }
+            } catch (e) {
+                console.warn(`[Pine IDE] Failed to re-execute indicator ${ind.name}:`, e);
+            }
+        });
+
+        this.applyActiveIndicatorsToChart();
     }
 
     handleAutoTradeSignal(signal, pair) {
         const now = Date.now();
-        // Only if signal occurred on the most recent candle
         if (now - signal.time < 3600000) {
             const side = signal.type === 'BUY' ? 'buy' : 'sell';
             console.log(`[Pine Auto-Trader] Executing ${side.toUpperCase()} for ${pair} based on ${signal.label}`);
             
-            // Dispatch order via main application
             if (window.app && window.app.placeOrder) {
                 window.app.placeOrder({
                     symbol: pair,
@@ -950,7 +1292,7 @@ if (shortCondition)
         }
     }
 
-    renderIndicatorLegend(result) {
+    renderIndicatorLegend() {
         let legendEl = document.getElementById('indicator-legend-overlay');
         if (!legendEl) {
             legendEl = document.createElement('div');
@@ -960,38 +1302,55 @@ if (shortCondition)
             if (container) container.appendChild(legendEl);
         }
 
-        if (!result || (!result.plots || !result.plots.length)) {
+        if (!this.activeIndicators || !this.activeIndicators.length) {
             legendEl.innerHTML = '';
             return;
         }
 
-        const title = result.scriptTitle || 'Pine Script Indicator';
-        legendEl.innerHTML = `
-            <div class="ind-badge-item">
-                <span class="ind-badge-dot"></span>
-                <span class="ind-badge-name">${title}</span>
-                <button class="ind-badge-action-btn" id="btn-ind-gear" title="Advanced Indicator Settings (Inputs & Colors)">⚙</button>
-                <button class="ind-badge-action-btn" id="btn-ind-toggle" title="Toggle Visibility">👁</button>
-            </div>
-        `;
+        legendEl.innerHTML = this.activeIndicators.map(ind => {
+            const firstPlot = ind.plots && ind.plots[0];
+            const dotColor = firstPlot ? (firstPlot.color || '#00f0ff') : '#00f0ff';
+            const isVis = ind.visible !== false;
+            return `
+                <div class="ind-badge-item" data-id="${ind.id}">
+                    <span class="ind-badge-dot" style="background: ${dotColor}; box-shadow: 0 0 6px ${dotColor};"></span>
+                    <span class="ind-badge-name">${ind.name}</span>
+                    <button class="ind-badge-action-btn ind-btn-gear" title="Advanced Indicator Settings (Inputs & Colors)" data-id="${ind.id}">⚙</button>
+                    <button class="ind-badge-action-btn ind-btn-toggle" title="Toggle Visibility" data-id="${ind.id}">${isVis ? '👁' : '🚫'}</button>
+                    <button class="ind-badge-action-btn ind-btn-remove" title="Remove Indicator" data-id="${ind.id}">✕</button>
+                </div>
+            `;
+        }).join('');
 
-        document.getElementById('btn-ind-gear')?.addEventListener('click', (e) => {
-            e.stopPropagation();
-            this.openSettingsModal(result);
+        // Attach listeners for each badge
+        legendEl.querySelectorAll('.ind-btn-gear').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const id = btn.dataset.id;
+                const ind = this.activeIndicators.find(i => i.id === id);
+                if (ind) this.openSettingsModal(ind);
+            });
         });
 
-        document.getElementById('btn-ind-toggle')?.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const btn = e.currentTarget;
-            this.indicatorVisible = this.indicatorVisible === false ? true : false;
-            btn.textContent = this.indicatorVisible ? '👁' : '🚫';
-            if (this.chart) {
-                this.chart.setIndicators(this.indicatorVisible ? (this.currentResults?.plots || []) : []);
-            }
+        legendEl.querySelectorAll('.ind-btn-toggle').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const id = btn.dataset.id;
+                this.toggleActiveIndicator(id);
+            });
+        });
+
+        legendEl.querySelectorAll('.ind-btn-remove').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const id = btn.dataset.id;
+                this.removeActiveIndicator(id);
+            });
         });
     }
 
-    openSettingsModal(result) {
+    openSettingsModal(ind) {
+        if (!ind) return;
         let modalEl = document.getElementById('indicator-settings-modal');
         if (!modalEl) {
             modalEl = document.createElement('div');
@@ -1000,9 +1359,9 @@ if (shortCondition)
             document.body.appendChild(modalEl);
         }
 
-        const scriptTitle = result.scriptTitle || 'Indicator';
-        const inputs = result.inputs || {};
-        const plots = result.plots || [];
+        const scriptTitle = ind.name || 'Indicator';
+        const inputs = ind.inputs || {};
+        const plots = ind.plots || [];
 
         // Build Inputs HTML
         let inputsHtml = '';
@@ -1012,7 +1371,7 @@ if (shortCondition)
         } else {
             inputsHtml = inputKeys.map(k => {
                 const inp = inputs[k];
-                const curVal = this.customInputs[k] !== undefined ? this.customInputs[k] : inp.value;
+                const curVal = ind.customInputs[k] !== undefined ? ind.customInputs[k] : inp.value;
                 if (inp.type === 'bool') {
                     return `
                         <div class="settings-row">
@@ -1037,7 +1396,7 @@ if (shortCondition)
         } else {
             styleHtml = plots.map((p, idx) => {
                 const pTitle = p.rawTitle || p.title || `Plot ${idx + 1}`;
-                const curStyle = this.customStyles[pTitle] || {};
+                const curStyle = ind.customStyles[pTitle] || {};
                 const curColor = curStyle.color || p.color || '#00f0ff';
                 const curWidth = curStyle.linewidth || p.linewidth || 2;
                 const isVis = curStyle.visible !== false;
@@ -1120,10 +1479,10 @@ if (shortCondition)
         modalEl.querySelector('.settings-modal-backdrop')?.addEventListener('click', closeModal);
 
         modalEl.querySelector('#btn-reset-ind-settings')?.addEventListener('click', () => {
-            this.customInputs = {};
-            this.customStyles = {};
+            ind.customInputs = {};
+            ind.customStyles = {};
             closeModal();
-            this.executeScript();
+            this.executeAllActiveIndicators();
         });
 
         modalEl.querySelector('#btn-apply-ind-settings')?.addEventListener('click', () => {
@@ -1132,10 +1491,10 @@ if (shortCondition)
                 const el = modalEl.querySelector(`#modal-inp-${k}`);
                 if (el) {
                     if (el.type === 'checkbox') {
-                        this.customInputs[k] = el.checked;
+                        ind.customInputs[k] = el.checked;
                     } else {
                         const val = parseFloat(el.value);
-                        this.customInputs[k] = isNaN(val) ? el.value : val;
+                        ind.customInputs[k] = isNaN(val) ? el.value : val;
                     }
                 }
             });
@@ -1147,7 +1506,7 @@ if (shortCondition)
                 const lwEl = modalEl.querySelector(`#modal-style-lw-${idx}`);
                 const visEl = modalEl.querySelector(`#modal-style-vis-${idx}`);
 
-                this.customStyles[pTitle] = {
+                ind.customStyles[pTitle] = {
                     color: colEl ? colEl.value : p.color,
                     linewidth: lwEl ? parseInt(lwEl.value) : p.linewidth,
                     visible: visEl ? visEl.checked : true
@@ -1155,7 +1514,7 @@ if (shortCondition)
             });
 
             closeModal();
-            this.executeScript();
+            this.executeAllActiveIndicators();
         });
     }
 }

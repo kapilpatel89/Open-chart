@@ -20,11 +20,14 @@
                     <span class="badge-3d">3D VOLUMETRIC</span>
                 </div>
 
-                <!-- Coin Search & Selector -->
-                <div class="market-search-box">
+                <!-- Coin Search & Fast Selector Trigger -->
+                <div class="market-search-box" id="symbol-search-trigger" title="Click to search 600+ coins (or press /)">
                     <span class="market-icon">⚡</span>
-                    <input type="text" id="market-search-input" placeholder="Search 600+ Coins (e.g. BTC, ETH, SOL)..." autocomplete="off">
-                    <select id="coin-select" class="market-dropdown">
+                    <span class="symbol-display-text" id="symbol-display-text">BTC / USDT</span>
+                    <span class="symbol-display-badge" id="symbol-display-price">$62,000.00</span>
+                    <span class="market-dropdown-arrow">▾</span>
+                    <!-- Hidden select for backwards compatibility -->
+                    <select id="coin-select" style="display:none">
                         <option value="B-BTC_USDT">BTC/USDT</option>
                     </select>
                 </div>
@@ -279,21 +282,28 @@
                         <div class="pine-toolbar">
                             <div class="template-selector">
                                 <button id="btn-add-script" class="btn-secondary" title="Create a new script from scratch">＋ Add Script</button>
-                                <span>Template:</span>
+                                <span>Script:</span>
                                 <select id="pine-template-select">
-                                    <option value="ema_ribbon">EMA Ribbon 9/21/50 Scalper</option>
-                                    <option value="supertrend">Supertrend (10, 3) + Momentum</option>
-                                    <option value="bollinger">Bollinger Bands Mean Reversion</option>
-                                    <option value="smc">Institutional SMC Orderflow</option>
+                                    <optgroup label="Preset Strategies">
+                                        <option value="ema_ribbon">EMA Ribbon 9/21/50 Scalper</option>
+                                        <option value="supertrend">Supertrend (10, 3) + Momentum</option>
+                                        <option value="bollinger">Bollinger Bands Mean Reversion</option>
+                                        <option value="smc">Institutional SMC Orderflow</option>
+                                    </optgroup>
+                                    <optgroup label="My Saved Scripts" id="pine-saved-scripts-group">
+                                    </optgroup>
                                 </select>
+                                <button id="btn-save-script-as" class="btn-secondary" title="Save script with your own custom name">💾 Save Script As...</button>
+                                <button id="btn-delete-saved-script" class="btn-secondary" title="Delete current custom script" style="display:none">🗑 Delete</button>
                             </div>
                             <div class="pine-actions">
                                 <label class="auto-trade-toggle" title="Automatically place real orders when Pine signals fire">
                                     <input type="checkbox" id="check-auto-trade">
                                     <span>⚡ Auto-Execute Orders on Signals</span>
                                 </label>
-                                <button id="btn-verify-pine" class="btn-secondary" title="Verify code syntax and check for errors">🔍 Verify Code</button>
-                                <button id="btn-run-pine" class="btn-primary" title="Verify & Compile Script onto 3D Chart">▶ Compile & Run on Chart</button>
+                                <button id="btn-verify-pine" class="btn-secondary" title="Verify code syntax and check for errors">🔍 Verify</button>
+                                <button id="btn-add-pine" class="btn-primary" title="Add as new indicator or update on chart">▶ + Add to Chart</button>
+                                <button id="btn-run-pine" class="btn-secondary" title="Replace all chart indicators with this script">🔄 Replace Chart</button>
                             </div>
                         </div>
 
@@ -435,6 +445,57 @@
         <div class="context-divider"></div>
         <div class="context-item" id="ctx-open-pine"><span>⚡ Open Pine Script IDE</span></div>
         <div class="context-item" id="ctx-clear-drawings"><span>🗑 Clear Drawings</span></div>
+    </div>
+
+    <!-- TradingView-Style Snappy Symbol Search Modal -->
+    <div id="symbol-search-modal" class="symbol-modal hidden">
+        <div class="symbol-modal-backdrop" id="symbol-modal-backdrop"></div>
+        <div class="symbol-modal-card">
+            <div class="symbol-modal-header">
+                <div class="symbol-input-wrap">
+                    <span class="search-glass">🔍</span>
+                    <input type="text" id="symbol-modal-input" placeholder="Search 600+ coins by symbol or name (e.g. BTC, ETH, SOL, PEPE, DOGE)..." autocomplete="off" spellcheck="false">
+                    <button class="symbol-input-clear" id="symbol-input-clear" title="Clear search">✕</button>
+                </div>
+                <button class="symbol-modal-close" id="symbol-modal-close">✕</button>
+            </div>
+            <div class="symbol-categories">
+                <button class="sym-cat-btn active" data-cat="all">All Coins</button>
+                <button class="sym-cat-btn" data-cat="top">Top 20</button>
+                <button class="sym-cat-btn" data-cat="layer1">Layer 1</button>
+                <button class="sym-cat-btn" data-cat="defi">DeFi</button>
+                <button class="sym-cat-btn" data-cat="meme">Memes</button>
+            </div>
+            <div class="symbol-list-wrap" id="symbol-list-wrap">
+                <!-- Dynamically rendered coin rows -->
+            </div>
+            <div class="symbol-modal-footer">
+                <span>Tip: Click any coin to switch chart immediately • Press <kbd>Esc</kbd> to close</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Save Pine Script Custom Name Modal -->
+    <div id="save-script-modal" class="custom-script-modal hidden">
+        <div class="modal-backdrop" id="save-modal-backdrop"></div>
+        <div class="modal-card">
+            <div class="modal-header">
+                <div class="modal-header-left">
+                    <span class="modal-icon">💾</span>
+                    <h3>Save Pine Script</h3>
+                </div>
+                <button class="modal-close-btn" id="btn-close-save-modal">✕</button>
+            </div>
+            <div class="modal-body">
+                <label for="save-script-name-input"><b>Script Name</b></label>
+                <input type="text" id="save-script-name-input" placeholder="e.g. Simple Support Resistance" class="modal-input" maxlength="45">
+                <small class="modal-hint">This name will be saved in your script library and shown on the chart legend badge.</small>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" id="btn-cancel-save-script">Cancel</button>
+                <button class="btn-primary" id="btn-confirm-save-script">Save to My Scripts</button>
+            </div>
+        </div>
     </div>
 
     <!-- Scripts -->

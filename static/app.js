@@ -89,21 +89,17 @@ class OpenChartApp {
     }
 
     bindEvents() {
-        // Coin Search Filter Input
-        const searchInput = document.getElementById('market-search-input');
-        searchInput.addEventListener('input', (e) => {
-            const query = e.target.value.toUpperCase().trim();
-            const filtered = this.markets.filter(m => m.symbol.toUpperCase().includes(query) || m.name.toUpperCase().includes(query));
-            this.populateCoinDropdown(filtered);
-        });
-
-        // Coin Selector Dropdown
+        // Fast TradingView-Style Symbol Search & Selector
+        this.setupSymbolSearchModal();
         const coinSelect = document.getElementById('coin-select');
-        coinSelect.addEventListener('change', (e) => {
-            this.currentPair = e.target.value;
-            window.currentPair = this.currentPair;
-            this.onMarketChange();
-        });
+        if (coinSelect) {
+            coinSelect.addEventListener('change', (e) => {
+                this.currentPair = e.target.value;
+                window.currentPair = this.currentPair;
+                this.updateSymbolTriggerDisplay();
+                this.onMarketChange();
+            });
+        }
 
         // Timeframe Buttons with Instant Cache & Immediate Switch
         document.querySelectorAll('.tf-btn').forEach(btn => {
@@ -481,6 +477,8 @@ class OpenChartApp {
             this.currentPair = `B-${base}_USDT`;
         }
         window.currentPair = this.currentPair;
+        this.updateSymbolTriggerDisplay();
+
         const normInterval = this.currentInterval || '1h';
         const cacheKey = `${this.currentPair}_${normInterval}`;
 
@@ -497,8 +495,8 @@ class OpenChartApp {
             }
         }
         if (!hasCache) {
-            // Immediate zero-latency fallback candles so chart NEVER freezes or shows blank
-            const fallback = this.generateFallbackCandles();
+            // Immediate zero-latency fallback candles accurately calibrated to this coin's price level
+            const fallback = this.generateFallbackCandles(this.currentPair);
             this.chart.setCandles(fallback, true);
             this.updateTickerHeader();
         }
@@ -516,10 +514,16 @@ class OpenChartApp {
             console.warn("Candle load error:", e);
         }
 
-        // 5. Concurrently update orderbook and pine script non-blocking
+        // 5. Concurrently update orderbook and recompute all active Pine indicators non-blocking
         this.fetchOrderBook();
         this.recalculateTpSlPreviews();
-        this.pineIDE.executeScript(this.currentPair, this.currentInterval);
+        if (this.pineIDE) {
+            if (typeof this.pineIDE.executeAllActiveIndicators === 'function') {
+                this.pineIDE.executeAllActiveIndicators(this.currentPair, this.currentInterval);
+            } else {
+                this.pineIDE.executeScript(this.currentPair, this.currentInterval);
+            }
+        }
     }
 
     getCleanSymbol() {
@@ -644,19 +648,190 @@ class OpenChartApp {
         }
     }
 
+    setupSymbolSearchModal() {
+        const trigger = document.getElementById('symbol-search-trigger');
+        const modal = document.getElementById('symbol-search-modal');
+        const backdrop = document.getElementById('symbol-modal-backdrop');
+        const closeBtn = document.getElementById('symbol-modal-close');
+        const input = document.getElementById('symbol-modal-input');
+        const clearBtn = document.getElementById('symbol-input-clear');
+        const listWrap = document.getElementById('symbol-list-wrap');
+        const catBtns = document.querySelectorAll('.sym-cat-btn');
+
+        if (!trigger || !modal) return;
+
+        let activeCategory = 'all';
+
+        const openModal = () => {
+            modal.classList.remove('hidden');
+            if (input) {
+                input.value = '';
+                setTimeout(() => input.focus(), 40);
+            }
+            renderSymbols();
+        };
+
+        const closeModal = () => {
+            modal.classList.add('hidden');
+        };
+
+        trigger.addEventListener('click', openModal);
+        if (backdrop) backdrop.addEventListener('click', closeModal);
+        if (closeBtn) closeBtn.addEventListener('click', closeModal);
+        if (clearBtn) {
+            clearBtn.addEventListener('click', () => {
+                if (input) {
+                    input.value = '';
+                    input.focus();
+                    renderSymbols();
+                }
+            });
+        }
+
+        catBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                catBtns.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                activeCategory = btn.dataset.cat || 'all';
+                renderSymbols();
+            });
+        });
+
+        if (input) {
+            input.addEventListener('input', () => {
+                renderSymbols();
+            });
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') closeModal();
+                else if (e.key === 'Enter') {
+                    const firstRow = listWrap.querySelector('.sym-row');
+                    if (firstRow) firstRow.click();
+                }
+            });
+        }
+
+        // Global hotkey: press '/' to open symbol search
+        window.addEventListener('keydown', (e) => {
+            const tag = (e.target.tagName || '').toLowerCase();
+            if (tag === 'input' || tag === 'textarea' || e.target.isContentEditable) return;
+            if (e.key === '/') {
+                e.preventDefault();
+                openModal();
+            }
+        });
+
+        const renderSymbols = () => {
+            if (!listWrap) return;
+            const q = (input ? input.value : '').trim().toUpperCase();
+            let items = this.markets || [];
+
+            // Category filtering
+            if (activeCategory === 'top') {
+                items = items.slice(0, 20);
+            } else if (activeCategory === 'layer1') {
+                const l1 = ['BTC', 'ETH', 'SOL', 'BNB', 'ADA', 'AVAX', 'NEAR', 'DOT', 'SUI', 'APT', 'TON', 'FTM'];
+                items = items.filter(m => l1.includes(this.cleanSymbol(m.symbol)));
+            } else if (activeCategory === 'defi') {
+                const defi = ['UNI', 'AAVE', 'LINK', 'MKR', 'CRV', 'LDO', 'INJ', 'RUNE', 'DYDX', 'JUP', 'PYTH'];
+                items = items.filter(m => defi.includes(this.cleanSymbol(m.symbol)));
+            } else if (activeCategory === 'meme') {
+                const meme = ['DOGE', 'SHIB', 'PEPE', 'WIF', 'BONK', 'FLOKI', 'NOT'];
+                items = items.filter(m => meme.includes(this.cleanSymbol(m.symbol)));
+            }
+
+            // Search query filter
+            if (q) {
+                items = items.filter(m => {
+                    const sym = (m.symbol || '').toUpperCase();
+                    const nm = (m.name || '').toUpperCase();
+                    const clean = this.cleanSymbol(m.symbol).toUpperCase();
+                    return sym.includes(q) || nm.includes(q) || clean.includes(q);
+                });
+            }
+
+            const cleanCur = this.cleanSymbol(this.currentPair);
+
+            if (!items.length) {
+                listWrap.innerHTML = `
+                    <div style="padding: 30px; text-align: center; color: var(--text-secondary); font-size: 13px;">
+                        No assets found matching "<b>${q}</b>".
+                    </div>
+                `;
+                return;
+            }
+
+            listWrap.innerHTML = items.slice(0, 100).map(m => {
+                const clean = this.cleanSymbol(m.symbol);
+                const isSelected = clean === cleanCur;
+                const chg = parseFloat(m.change_24h || 0);
+                const isPos = chg >= 0;
+                return `
+                    <div class="sym-row ${isSelected ? 'selected' : ''}" data-symbol="${m.symbol}">
+                        <div class="sym-left">
+                            <span class="sym-badge">${clean}</span>
+                            <div class="sym-name-group">
+                                <span class="sym-symbol">${clean} / USDT</span>
+                                <span class="sym-sub">${m.name || clean}</span>
+                            </div>
+                        </div>
+                        <div class="sym-right">
+                            <span class="sym-price">$${parseFloat(m.last_price || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}</span>
+                            <span class="sym-chg ${isPos ? 'pos' : 'neg'}">${isPos ? '+' : ''}${chg.toFixed(2)}%</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            // Click delegation for instant response (0ms)
+            listWrap.querySelectorAll('.sym-row').forEach(row => {
+                row.addEventListener('click', () => {
+                    const sym = row.dataset.symbol;
+                    if (sym) {
+                        this.currentPair = sym;
+                        window.currentPair = this.currentPair;
+                        closeModal();
+                        this.updateSymbolTriggerDisplay();
+                        this.onMarketChange();
+                    }
+                });
+            });
+        };
+
+        this.renderSymbolModalList = renderSymbols;
+        this.updateSymbolTriggerDisplay();
+    }
+
+    updateSymbolTriggerDisplay() {
+        const textEl = document.getElementById('symbol-display-text');
+        const priceEl = document.getElementById('symbol-display-price');
+        const clean = this.cleanSymbol(this.currentPair);
+        if (textEl) {
+            textEl.textContent = `${clean} / USDT`;
+        }
+        if (priceEl) {
+            const curP = this.getCurrentPrice() || this.getKnownBasePrice(this.currentPair);
+            priceEl.textContent = `$${curP.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`;
+        }
+    }
+
     populateCoinDropdown(marketList) {
         const coinSelect = document.getElementById('coin-select');
-        if (!coinSelect) return;
-        const currentClean = (this.currentPair || 'BTC_USDT').replace('B-', '').replace('_', '').toUpperCase();
-        coinSelect.innerHTML = marketList.slice(0, 150).map(m => {
-            const symClean = (m.symbol || '').replace('B-', '').replace('_', '').toUpperCase();
-            const isSelected = symClean === currentClean;
-            return `
-                <option value="${m.symbol}" ${isSelected ? 'selected' : ''}>
-                    ${m.name} ($${m.last_price})
-                </option>
-            `;
-        }).join('');
+        if (coinSelect) {
+            const currentClean = (this.currentPair || 'BTC_USDT').replace('B-', '').replace('_', '').toUpperCase();
+            coinSelect.innerHTML = marketList.slice(0, 150).map(m => {
+                const symClean = (m.symbol || '').replace('B-', '').replace('_', '').toUpperCase();
+                const isSelected = symClean === currentClean;
+                return `
+                    <option value="${m.symbol}" ${isSelected ? 'selected' : ''}>
+                        ${m.name} ($${m.last_price})
+                    </option>
+                `;
+            }).join('');
+        }
+        if (typeof this.renderSymbolModalList === 'function') {
+            this.renderSymbolModalList();
+        }
+        this.updateSymbolTriggerDisplay();
     }
 
     async switchTimeframe(interval) {
@@ -679,39 +854,107 @@ class OpenChartApp {
             this.updateTickerHeader();
             this.recalculateTpSlPreviews();
             this.applyQuickIndicators();
-            this.pineIDE.executeScript(this.currentPair, this.currentInterval);
+            if (this.pineIDE) {
+                if (typeof this.pineIDE.executeAllActiveIndicators === 'function') {
+                    this.pineIDE.executeAllActiveIndicators(this.currentPair, this.currentInterval);
+                } else {
+                    this.pineIDE.executeScript(this.currentPair, this.currentInterval);
+                }
+            }
         }
 
-        // 3. Fetch fresh update from CoinDCX API
+        // 3. Fetch fresh update from Binance / CoinDCX API
         await this.loadCandles(true);
 
-        // 4. Re-run Pine Script with fresh data for this timeframe
-        this.pineIDE.executeScript(this.currentPair, this.currentInterval);
+        // 4. Re-run all active Pine Script indicators with fresh data for this timeframe
+        if (this.pineIDE) {
+            if (typeof this.pineIDE.executeAllActiveIndicators === 'function') {
+                this.pineIDE.executeAllActiveIndicators(this.currentPair, this.currentInterval);
+            } else {
+                this.pineIDE.executeScript(this.currentPair, this.currentInterval);
+            }
+        }
     }
 
-    generateFallbackCandles() {
+    getKnownBasePrice(pair) {
+        const clean = this.cleanSymbol(pair || this.currentPair);
+        // 1. Look in markets list
+        if (this.markets && this.markets.length) {
+            const m = this.markets.find(x => this.cleanSymbol(x.symbol) === clean || (x.name && x.name.toUpperCase().includes(clean)));
+            if (m && parseFloat(m.last_price) > 0) {
+                return parseFloat(m.last_price);
+            }
+        }
+        // 2. Fallback table for major assets
+        const defaults = {
+            'BTC': 62000.0,
+            'ETH': 2450.0,
+            'SOL': 155.0,
+            'BNB': 575.0,
+            'XRP': 0.58,
+            'DOGE': 0.14,
+            'ADA': 0.36,
+            'AVAX': 28.5,
+            'LINK': 11.2,
+            'DOT': 4.25,
+            'NEAR': 4.85,
+            'SUI': 1.95,
+            'PEPE': 0.0000095,
+            'SHIB': 0.0000185,
+            'LTC': 68.2,
+            'BCH': 345.0,
+            'UNI': 7.4,
+            'ATOM': 4.6,
+            'ICP': 8.1,
+            'FIL': 3.75,
+            'ARB': 0.55,
+            'OP': 1.65,
+            'APT': 9.2,
+            'FTM': 0.72,
+            'TIA': 5.4,
+            'RENDER': 5.8,
+            'INJ': 21.5,
+            'STX': 1.75,
+            'FET': 1.35,
+            'TAO': 540.0,
+            'WIF': 2.45,
+            'BONK': 0.000022,
+            'FLOKI': 0.00015,
+            'AAVE': 158.0,
+            'CRV': 0.28,
+            'MKR': 1280.0,
+            'LDO': 1.15,
+            'GALA': 0.022,
+            'TON': 5.2
+        };
+        if (defaults[clean]) return defaults[clean];
+        return 100.0;
+    }
+
+    generateFallbackCandles(targetPair = null, targetPrice = null) {
+        const pair = targetPair || this.currentPair;
         const count = 100;
         const now = Date.now();
         const stepMs = 3600 * 1000;
-        let baseP = this.getCurrentPrice();
-        if (baseP <= 0) {
-            const clean = this.getCleanSymbol();
-            const match = this.markets.find(m => (m.symbol || '').includes(clean));
-            baseP = match ? parseFloat(match.last_price || 100) : 100;
-        }
+        const baseP = (targetPrice && targetPrice > 0) ? targetPrice : this.getKnownBasePrice(pair);
 
         const candles = [];
-        let cur = baseP * 0.95;
+        let cur = baseP * 0.96;
         for (let i = count; i >= 0; i--) {
             const t = now - (i * stepMs);
-            const delta = (Math.random() - 0.48) * (cur * 0.012);
+            const delta = (Math.random() - 0.48) * (cur * 0.008);
             const open = cur;
             const close = cur + delta;
-            const high = Math.max(open, close) + Math.random() * (cur * 0.006);
-            const low = Math.min(open, close) - Math.random() * (cur * 0.006);
+            const high = Math.max(open, close) + Math.random() * (cur * 0.004);
+            const low = Math.min(open, close) - Math.random() * (cur * 0.004);
             const vol = Math.random() * 50 + 10;
             candles.push({ time: t, open, high, low, close, volume: vol });
             cur = close;
+        }
+        if (candles.length) {
+            candles[candles.length - 1].close = baseP;
+            candles[candles.length - 1].high = Math.max(candles[candles.length - 1].high, baseP);
+            candles[candles.length - 1].low = Math.min(candles[candles.length - 1].low, baseP);
         }
         return candles;
     }
@@ -765,7 +1008,7 @@ class OpenChartApp {
 
             // 3. Fallback: Generate synthetic smooth candles if completely offline/blocked
             if (!candles || !candles.length) {
-                candles = this.generateFallbackCandles();
+                candles = this.generateFallbackCandles(this.currentPair);
             }
 
             if (candles && candles.length) {
@@ -1562,26 +1805,7 @@ class OpenChartApp {
     }
 
     generateFallbackCandlesFor(pair) {
-        const count = 100;
-        const now = Date.now();
-        const stepMs = 3600 * 1000;
-        const clean = this.cleanSymbol(pair);
-        const match = this.markets.find(m => this.cleanSymbol(m.symbol) === clean);
-        let cur = match ? parseFloat(match.last_price || 100) : (clean === 'BTC' ? 62000 : (clean === 'ETH' ? 2450 : 100));
-
-        const candles = [];
-        for (let i = count; i >= 0; i--) {
-            const t = now - (i * stepMs);
-            const delta = (Math.random() - 0.48) * (cur * 0.012);
-            const open = cur;
-            const close = cur + delta;
-            const high = Math.max(open, close) + Math.random() * (cur * 0.005);
-            const low = Math.min(open, close) - Math.random() * (cur * 0.005);
-            const vol = Math.random() * 50 + 10;
-            candles.push({ time: t, open, high, low, close, volume: vol });
-            cur = close;
-        }
-        return candles;
+        return this.generateFallbackCandles(pair);
     }
 
     broadcastTickToPanes(symStr, tick) {
