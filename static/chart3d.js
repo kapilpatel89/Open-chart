@@ -144,6 +144,23 @@ class OpenChart3D {
         const last = this.candles[this.candles.length - 1];
         const tickTime = tick.time ? parseInt(tick.time) : Date.now();
 
+        // Anti-Distortion Guard: Detect asset/data mismatch (e.g. stale fallback candles from another coin)
+        // If price differs by > 35% from last candle close, instantly rescale all historical bars
+        // to prevent the 1-line flat compression & giant vertical spike artifact!
+        const priceDiffRatio = Math.abs(price - last.close) / Math.max(0.000001, last.close);
+        if (priceDiffRatio > 0.35 && this.candles.length > 5) {
+            const ratio = price / Math.max(0.000001, last.close);
+            this.candles.forEach(c => {
+                c.open = Number((c.open * ratio).toFixed(6));
+                c.high = Number((c.high * ratio).toFixed(6));
+                c.low = Number((c.low * ratio).toFixed(6));
+                c.close = Number((c.close * ratio).toFixed(6));
+            });
+            if (window.app && typeof window.app.loadCandles === 'function') {
+                window.app.loadCandles(false);
+            }
+        }
+
         // Check if tick crossed into the next timeframe candle bar
         if (tickTime >= last.time + tfMs) {
             const newBarTime = last.time + tfMs * Math.max(1, Math.floor((tickTime - last.time) / tfMs));
@@ -241,8 +258,12 @@ class OpenChart3D {
     }
 
     updatePriceRange() {
-        const { startIdx, endIdx } = this.visibleRange;
-        if (startIdx > endIdx || !this.candles.length) return;
+        if (!this.candles || !this.candles.length) return;
+        let { startIdx, endIdx } = this.visibleRange;
+        if (startIdx > endIdx || startIdx < 0 || endIdx < 0) {
+            startIdx = Math.max(0, this.candles.length - 30);
+            endIdx = this.candles.length - 1;
+        }
 
         let min = Infinity;
         let max = -Infinity;
@@ -250,40 +271,44 @@ class OpenChart3D {
         for (let i = startIdx; i <= endIdx; i++) {
             const c = this.candles[i];
             if (!c) continue;
-            if (c.low < min) min = c.low;
-            if (c.high > max) max = c.high;
+            if (isFinite(c.low) && c.low < min) min = c.low;
+            if (isFinite(c.high) && c.high > max) max = c.high;
         }
 
         // Active Orders & Positions TP/SL
         [...this.positions, ...this.orders].forEach(item => {
             const p = item.entry_price || item.price;
-            if (p) {
+            if (p && isFinite(p)) {
                 if (p < min) min = p;
                 if (p > max) max = p;
             }
-            if (item.take_profit) {
+            if (item.take_profit && isFinite(item.take_profit)) {
                 if (item.take_profit < min) min = item.take_profit;
                 if (item.take_profit > max) max = item.take_profit;
             }
-            if (item.stop_loss) {
+            if (item.stop_loss && isFinite(item.stop_loss)) {
                 if (item.stop_loss < min) min = item.stop_loss;
                 if (item.stop_loss > max) max = item.stop_loss;
             }
         });
 
-        if (min === Infinity || max === -Infinity) {
-            min = 100;
-            max = 200;
+        if (min === Infinity || max === -Infinity || !isFinite(min) || !isFinite(max)) {
+            const lastC = this.candles[this.candles.length - 1];
+            const p = (lastC && isFinite(lastC.close) && lastC.close > 0) ? lastC.close : 100;
+            min = p * 0.98;
+            max = p * 1.02;
         }
 
-        const padding = (max - min) * 0.1 || 1.0;
+        // Guarantee at least 1.5% vertical breathing room even on zero volatility/flat bars
+        const padding = Math.max((max - min) * 0.1, (min * 0.015) || 1.0);
         let baseMin = min - padding;
         let baseMax = max + padding;
 
         // Apply dynamic user vertical price scaling (drag price axis up/down)
         if (this.userPriceZoom !== 1.0) {
+            this.userPriceZoom = Math.max(0.05, Math.min(20.0, this.userPriceZoom));
             const mid = (baseMin + baseMax) / 2.0;
-            const halfSpan = ((baseMax - baseMin) / 2.0) * this.userPriceZoom;
+            const halfSpan = Math.max(0.01, ((baseMax - baseMin) / 2.0) * this.userPriceZoom);
             baseMin = mid - halfSpan;
             baseMax = mid + halfSpan;
         }
@@ -1860,11 +1885,14 @@ class OpenChart3D {
         const newWidth = Math.min(this.options.maxCandleWidth, Math.max(this.options.minCandleWidth, this.candleWidth * zoomFactor));
 
         if (newWidth !== this.candleWidth) {
-            const mouseX = this.mousePos.x;
-            const candleUnderMouse = (mouseX + this.offsetX) / (this.candleWidth + this.candleGap);
+            const mouseX = this.mousePos ? this.mousePos.x : (this.width / 2);
+            const oldStep = this.candleWidth + this.candleGap;
+            const candleUnderMouse = (mouseX + this.offsetX) / oldStep;
             this.candleWidth = newWidth;
             this.candleGap = Math.max(1, Math.round(newWidth * 0.4));
-            this.offsetX = Math.max(0, (candleUnderMouse * (this.candleWidth + this.candleGap)) - mouseX);
+            const newStep = this.candleWidth + this.candleGap;
+            const maxOffset = Math.max(0, this.candles.length * newStep);
+            this.offsetX = Math.max(0, Math.min(maxOffset + 200, (candleUnderMouse * newStep) - mouseX));
             this.render();
         }
     }
