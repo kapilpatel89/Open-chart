@@ -386,7 +386,16 @@ class PineEngine:
             "color.red": "#ff1744",
             "color.blue": "#00f0ff",
             "color.yellow": "#ffaa00",
-            "color.purple": "#a855f7"
+            "color.purple": "#a855f7",
+            "color.orange": "#ff9800",
+            "color.aqua": "#00f0ff",
+            "color.fuchsia": "#e040fb",
+            "color.lime": "#00e676",
+            "color.teal": "#00897b",
+            "color.maroon": "#880e4f",
+            "orange": "#ff9800",
+            "aqua": "#00f0ff",
+            "fuchsia": "#e040fb"
         }
 
         plots: List[Dict[str, Any]] = []
@@ -571,6 +580,16 @@ class PineEngine:
         win_rate = round((win_count / total_trades * 100.0) if total_trades > 0 else 0.0, 1)
         net_profit_pct = round(((equity - init_equity) / init_equity) * 100.0, 2)
 
+        # Merge plotshapes into signals so they render as markers on chart
+        for ps in plotshapes:
+            signals.append({
+                "time": ps["time"],
+                "type": ps.get("type", "BUY"),
+                "price": ps["price"],
+                "label": ps["title"],
+                "color": ps["color"]
+            })
+
         return {
             "plots": plots,
             "plotshapes": plotshapes,
@@ -594,6 +613,27 @@ class PineEngine:
             return []
         raw_args = m.group(1).split(",")
         return [a.strip() for a in raw_args if a.strip()]
+
+    @classmethod
+    def _get_shifted_series(cls, token: str, env: Dict[str, Any], fallback: Any, n: int) -> Any:
+        token = token.strip()
+        offset = 0
+        if "[" in token and token.endswith("]"):
+            m = re.search(r"([^\[]+)\[(\d+)\]", token)
+            if m:
+                token = m.group(1).strip()
+                offset = int(m.group(2))
+        base = env.get(token, fallback)
+        if isinstance(base, list):
+            if offset == 0:
+                return base
+            shifted = [None] * n
+            for i in range(n):
+                shifted[i] = base[i - offset] if i >= offset else base[0]
+            return shifted
+        elif isinstance(base, (int, float, bool)):
+            return [base] * n
+        return fallback
 
     @classmethod
     def _evaluate_expr(cls, expr: str, env: Dict[str, Any], n: int, opens, highs, lows, closes, volumes) -> Any:
@@ -626,6 +666,52 @@ class PineEngine:
                     res[b] = cls._eval_condition_at_bar(expr, env, b)
                 return res
 
+        # Arithmetic + / - outside parentheses
+        paren_depth = 0
+        split_idx = -1
+        split_op = None
+        for c in range(len(expr) - 1, -1, -1):
+            ch = expr[c]
+            if ch == ')': paren_depth += 1
+            elif ch == '(': paren_depth -= 1
+            elif paren_depth == 0 and ch in ('+', '-') and 0 < c < len(expr) - 1:
+                split_idx = c
+                split_op = ch
+                break
+        if split_idx > -1:
+            s_l = cls._evaluate_expr(expr[:split_idx], env, n, opens, highs, lows, closes, volumes)
+            s_r = cls._evaluate_expr(expr[split_idx+1:], env, n, opens, highs, lows, closes, volumes)
+            res = [None] * n
+            for i in range(n):
+                vl = s_l[i] if isinstance(s_l, list) and i < len(s_l) else (s_l if isinstance(s_l, (int, float)) else None)
+                vr = s_r[i] if isinstance(s_r, list) and i < len(s_r) else (s_r if isinstance(s_r, (int, float)) else None)
+                if vl is not None and vr is not None:
+                    res[i] = vl + vr if split_op == '+' else vl - vr
+            return res
+
+        # Arithmetic * / / outside parentheses
+        paren_depth = 0
+        split_idx = -1
+        split_op = None
+        for c in range(len(expr) - 1, -1, -1):
+            ch = expr[c]
+            if ch == ')': paren_depth += 1
+            elif ch == '(': paren_depth -= 1
+            elif paren_depth == 0 and ch in ('*', '/') and 0 < c < len(expr) - 1:
+                split_idx = c
+                split_op = ch
+                break
+        if split_idx > -1:
+            s_l = cls._evaluate_expr(expr[:split_idx], env, n, opens, highs, lows, closes, volumes)
+            s_r = cls._evaluate_expr(expr[split_idx+1:], env, n, opens, highs, lows, closes, volumes)
+            res = [None] * n
+            for i in range(n):
+                vl = s_l[i] if isinstance(s_l, list) and i < len(s_l) else (s_l if isinstance(s_l, (int, float)) else None)
+                vr = s_r[i] if isinstance(s_r, list) and i < len(s_r) else (s_r if isinstance(s_r, (int, float)) else None)
+                if vl is not None and vr is not None:
+                    res[i] = vl * vr if split_op == '*' else (vl / vr if vr != 0 else None)
+            return res
+
         def _resolve_int(val_str: str, default: int = 14) -> int:
             val_str = val_str.strip()
             if val_str in env:
@@ -642,7 +728,7 @@ class PineEngine:
         if expr.startswith("ta.ema"):
             args = cls._extract_call_args(expr)
             src_name = args[0] if len(args) > 0 else "close"
-            src = env.get(src_name, closes)
+            src = cls._get_shifted_series(src_name, env, closes, n)
             period = _resolve_int(args[1], 9) if len(args) > 1 else 9
             return cls.calculate_ema(src, period)
 
@@ -650,7 +736,7 @@ class PineEngine:
         if expr.startswith("ta.sma"):
             args = cls._extract_call_args(expr)
             src_name = args[0] if len(args) > 0 else "close"
-            src = env.get(src_name, closes)
+            src = cls._get_shifted_series(src_name, env, closes, n)
             period = _resolve_int(args[1], 20) if len(args) > 1 else 20
             return cls.calculate_sma(src, period)
 
@@ -658,7 +744,7 @@ class PineEngine:
         if expr.startswith("ta.rsi"):
             args = cls._extract_call_args(expr)
             src_name = args[0] if len(args) > 0 else "close"
-            src = env.get(src_name, closes)
+            src = cls._get_shifted_series(src_name, env, closes, n)
             period = _resolve_int(args[1], 14) if len(args) > 1 else 14
             return cls.calculate_rsi(src, period)
 
@@ -672,22 +758,26 @@ class PineEngine:
         if expr.startswith("ta.highest"):
             args = cls._extract_call_args(expr)
             src_name = args[0] if len(args) > 0 else "high"
-            src = env.get(src_name, highs)
+            src = cls._get_shifted_series(src_name, env, highs, n)
             period = _resolve_int(args[1], 20) if len(args) > 1 else 20
             res = [None] * n
             for i in range(period - 1, n):
-                res[i] = max(src[i - period + 1 : i + 1])
+                window = [x for x in src[i - period + 1 : i + 1] if x is not None]
+                if window:
+                    res[i] = max(window)
             return res
 
         # 6. ta.lowest(source, length)
         if expr.startswith("ta.lowest"):
             args = cls._extract_call_args(expr)
             src_name = args[0] if len(args) > 0 else "low"
-            src = env.get(src_name, lows)
+            src = cls._get_shifted_series(src_name, env, lows, n)
             period = _resolve_int(args[1], 20) if len(args) > 1 else 20
             res = [None] * n
             for i in range(period - 1, n):
-                res[i] = min(src[i - period + 1 : i + 1])
+                window = [x for x in src[i - period + 1 : i + 1] if x is not None]
+                if window:
+                    res[i] = min(window)
             return res
 
         # 7. ta.crossover(s1, s2)
@@ -830,13 +920,34 @@ class PineEngine:
         if not args:
             return
         series_name = args[0].strip()
-        series_data = env.get(series_name)
+        series_data = None
+        if "?" in series_name and ":" in series_name:
+            q_idx = series_name.find("?")
+            c_idx = series_name.find(":", q_idx)
+            cond_str = series_name[:q_idx].strip()
+            true_str = series_name[q_idx+1:c_idx].strip()
+            false_str = series_name[c_idx+1:].strip()
+            cond_val = env.get(cond_str, True)
+            if isinstance(cond_val, bool):
+                chosen = true_str if cond_val else false_str
+                series_data = [None] * n if chosen == "na" else env.get(chosen)
+            elif isinstance(cond_val, list):
+                s_true = env.get(true_str) if true_str != "na" else None
+                s_false = env.get(false_str) if false_str != "na" else None
+                series_data = [None] * n
+                for i in range(n):
+                    if i < len(cond_val):
+                        series_data[i] = (s_true[i] if s_true and i < len(s_true) else None) if cond_val[i] else (s_false[i] if s_false and i < len(s_false) else None)
+        else:
+            series_data = env.get(series_name)
+
         if not series_data or not isinstance(series_data, list):
             return
 
         title = series_name
         color = "#00f0ff"
         linewidth = 2
+        is_stepline = "plot.style_stepline" in line or "stepline" in line.lower()
 
         # Extract title and color from arguments
         for a in args[1:]:
@@ -863,6 +974,7 @@ class PineEngine:
             "title": title,
             "color": color,
             "linewidth": linewidth,
+            "style": "stepline" if is_stepline else "line",
             "pane": "main",
             "data": points
         })
@@ -879,11 +991,13 @@ class PineEngine:
 
         title = "Shape"
         color = "#00e676"
+        is_below = "location.belowbar" in line or "triangleup" in line
         for a in args[1:]:
             if "=" in a:
                 k, v = a.split("=", 1)
                 k, v = k.strip().lower(), v.strip().replace('"', '').replace("'", "")
                 if k == "title": title = v
+                elif k == "text": title = v
                 elif k == "color": color = env.get(v, v)
 
         for i in range(n):
@@ -892,5 +1006,6 @@ class PineEngine:
                     "time": times[i],
                     "price": closes[i],
                     "title": title,
-                    "color": color
+                    "color": color,
+                    "type": "BUY" if is_below else "SELL"
                 })

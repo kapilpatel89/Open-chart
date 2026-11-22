@@ -536,6 +536,7 @@ class OpenChartApp {
             { symbol: "BTC_USDT", name: "BTC / USDT", last_price: "62000.00", change_24h: 1.25, volume: 145000 },
             { symbol: "ETH_USDT", name: "ETH / USDT", last_price: "2450.00", change_24h: -0.85, volume: 98000 },
             { symbol: "SOL_USDT", name: "SOL / USDT", last_price: "155.00", change_24h: 3.40, volume: 76000 },
+            { symbol: "JCT_USDT", name: "JCT / USDT", last_price: "0.001582", change_24h: 3.20, volume: 112000000 },
             { symbol: "XRP_USDT", name: "XRP / USDT", last_price: "0.58", change_24h: 0.40, volume: 54000 },
             { symbol: "DOGE_USDT", name: "DOGE / USDT", last_price: "0.14", change_24h: 5.10, volume: 42000 },
             { symbol: "ADA_USDT", name: "ADA / USDT", last_price: "0.36", change_24h: 1.10, volume: 38000 },
@@ -593,7 +594,7 @@ class OpenChartApp {
             { symbol: "TON_USDT", name: "TON / USDT", last_price: "5.20", change_24h: 1.80, volume: 2600 }
         ];
 
-        // 1. Check local storage cache for instant 100+ coin load
+        // 1. Check local storage cache for instant coin load
         try {
             const cached = localStorage.getItem('openchart_markets_cache');
             if (cached) {
@@ -618,8 +619,7 @@ class OpenChartApp {
                 if (Array.isArray(rawList) && rawList.length) {
                     const usdtTickers = rawList
                         .filter(t => t.symbol.endsWith('USDT') && !t.symbol.includes('UP') && !t.symbol.includes('DOWN'))
-                        .sort((a, b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume))
-                        .slice(0, 120);
+                        .sort((a, b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume));
 
                     const liveMarkets = usdtTickers.map(t => {
                         const base = t.symbol.replace('USDT', '');
@@ -632,6 +632,34 @@ class OpenChartApp {
                             volume: parseFloat(t.quoteVolume)
                         };
                     });
+
+                    // Ensure JCT / USDT is always present for search & selection
+                    if (!liveMarkets.some(m => m.symbol === 'JCT_USDT')) {
+                        try {
+                            const mResp = await fetch('https://api.mexc.com/api/v3/ticker/24hr?symbol=JCTUSDT');
+                            if (mResp.ok) {
+                                const jct = await mResp.json();
+                                if (jct && jct.symbol === 'JCTUSDT') {
+                                    const p = parseFloat(jct.lastPrice);
+                                    liveMarkets.push({
+                                        symbol: 'JCT_USDT',
+                                        name: 'JCT / USDT',
+                                        last_price: p >= 1 ? p.toFixed(2) : (p >= 0.01 ? p.toFixed(4) : p.toFixed(6)),
+                                        change_24h: parseFloat(jct.priceChangePercent),
+                                        volume: parseFloat(jct.quoteVolume)
+                                    });
+                                }
+                            }
+                        } catch (mErr) {
+                            liveMarkets.push({
+                                symbol: 'JCT_USDT',
+                                name: 'JCT / USDT',
+                                last_price: '0.001582',
+                                change_24h: 3.20,
+                                volume: 112000000
+                            });
+                        }
+                    }
 
                     if (liveMarkets.length > 20) {
                         this.markets = liveMarkets;
@@ -750,43 +778,77 @@ class OpenChartApp {
             }
 
             const cleanCur = this.cleanSymbol(this.currentPair);
+            const cleanQ = q.replace(/[^A-Z0-9]/g, '');
 
-            if (!items.length) {
-                listWrap.innerHTML = `
-                    <div style="padding: 30px; text-align: center; color: var(--text-secondary); font-size: 13px;">
-                        No assets found matching "<b>${q}</b>".
-                    </div>
-                `;
-                return;
-            }
-
-            listWrap.innerHTML = items.slice(0, 100).map(m => {
-                const clean = this.cleanSymbol(m.symbol);
-                const isSelected = clean === cleanCur;
-                const chg = parseFloat(m.change_24h || 0);
-                const isPos = chg >= 0;
-                return `
-                    <div class="sym-row ${isSelected ? 'selected' : ''}" data-symbol="${m.symbol}">
+            let customRowHtml = '';
+            if (cleanQ && cleanQ.length >= 2 && !items.some(m => this.cleanSymbol(m.symbol) === cleanQ)) {
+                customRowHtml = `
+                    <div class="sym-row" data-symbol="${cleanQ}_USDT" style="background: rgba(0, 240, 255, 0.08); border-left: 3px solid #00f0ff;">
                         <div class="sym-left">
-                            <span class="sym-badge">${clean}</span>
+                            <span class="sym-badge" style="background: #00f0ff; color: #000; font-weight: bold;">⚡ OPEN</span>
                             <div class="sym-name-group">
-                                <span class="sym-symbol">${clean} / USDT</span>
-                                <span class="sym-sub">${m.name || clean}</span>
+                                <span class="sym-symbol" style="color: #00f0ff;">${cleanQ} / USDT</span>
+                                <span class="sym-sub">Instant load symbol (Binance / MEXC)</span>
                             </div>
                         </div>
                         <div class="sym-right">
-                            <span class="sym-price">$${parseFloat(m.last_price || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}</span>
-                            <span class="sym-chg ${isPos ? 'pos' : 'neg'}">${isPos ? '+' : ''}${chg.toFixed(2)}%</span>
+                            <span class="sym-chg pos">Direct Load →</span>
                         </div>
                     </div>
                 `;
-            }).join('');
+            }
+
+            if (!items.length) {
+                if (cleanQ && cleanQ.length >= 2) {
+                    listWrap.innerHTML = customRowHtml;
+                } else {
+                    listWrap.innerHTML = `
+                        <div style="padding: 30px; text-align: center; color: var(--text-secondary); font-size: 13px;">
+                            No assets found matching "<b>${q}</b>".
+                        </div>
+                    `;
+                    return;
+                }
+            } else {
+                const listRowsHtml = items.slice(0, 150).map(m => {
+                    const clean = this.cleanSymbol(m.symbol);
+                    const isSelected = clean === cleanCur;
+                    const chg = parseFloat(m.change_24h || 0);
+                    const isPos = chg >= 0;
+                    return `
+                        <div class="sym-row ${isSelected ? 'selected' : ''}" data-symbol="${m.symbol}">
+                            <div class="sym-left">
+                                <span class="sym-badge">${clean}</span>
+                                <div class="sym-name-group">
+                                    <span class="sym-symbol">${clean} / USDT</span>
+                                    <span class="sym-sub">${m.name || clean}</span>
+                                </div>
+                            </div>
+                            <div class="sym-right">
+                                <span class="sym-price">$${parseFloat(m.last_price || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}</span>
+                                <span class="sym-chg ${isPos ? 'pos' : 'neg'}">${isPos ? '+' : ''}${chg.toFixed(2)}%</span>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+                listWrap.innerHTML = customRowHtml + listRowsHtml;
+            }
 
             // Click delegation for instant response (0ms)
             listWrap.querySelectorAll('.sym-row').forEach(row => {
                 row.addEventListener('click', () => {
                     const sym = row.dataset.symbol;
                     if (sym) {
+                        const clean = this.cleanSymbol(sym);
+                        if (!this.markets.some(m => this.cleanSymbol(m.symbol) === clean)) {
+                            this.markets.unshift({
+                                symbol: sym,
+                                name: `${clean} / USDT`,
+                                last_price: "0.00",
+                                change_24h: 0.0,
+                                volume: 0
+                            });
+                        }
                         this.currentPair = sym;
                         window.currentPair = this.currentPair;
                         closeModal();
@@ -898,6 +960,7 @@ class OpenChartApp {
             'LINK': 11.2,
             'DOT': 4.25,
             'NEAR': 4.85,
+            'JCT': 0.001582,
             'SUI': 1.95,
             'PEPE': 0.0000095,
             'SHIB': 0.0000185,
@@ -1003,6 +1066,34 @@ class OpenChartApp {
                     }
                 } catch (bErr) {
                     console.warn("Direct Binance fallback failed:", bErr);
+                }
+            }
+
+            // 2b. Secondary Fallback: Direct MEXC Open CORS API (for altcoins like JCT not listed on Binance spot)
+            if (!candles || !candles.length) {
+                const cleanSym = this.getCleanSymbol() + 'USDT';
+                const mexcInterval = this.currentInterval === '1h' ? '60m' : (this.currentInterval === '4h' ? '4h' : (this.currentInterval === '1d' ? '1d' : this.currentInterval));
+                const mUrl = `https://api.mexc.com/api/v3/klines?symbol=${cleanSym}&interval=${mexcInterval}&limit=160`;
+                try {
+                    const mController = new AbortController();
+                    const mTimeout = setTimeout(() => mController.abort(), 3000);
+                    const mResp = await fetch(mUrl, { signal: mController.signal });
+                    clearTimeout(mTimeout);
+                    if (mResp.ok) {
+                        const raw = await mResp.json();
+                        if (Array.isArray(raw) && raw.length) {
+                            candles = raw.map(k => ({
+                                time: k[0],
+                                open: parseFloat(k[1]),
+                                high: parseFloat(k[2]),
+                                low: parseFloat(k[3]),
+                                close: parseFloat(k[4]),
+                                volume: parseFloat(k[5])
+                            }));
+                        }
+                    }
+                } catch (mErr) {
+                    console.warn("Direct MEXC fallback failed:", mErr);
                 }
             }
 
