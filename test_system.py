@@ -88,7 +88,7 @@ async def run_all_tests():
     assert om.trade_history[0]['reason'] == "take_profit", "Close reason should be take_profit"
 
     # 6. Test User's Support & Resistance Pine Script with input.int and color.red/green
-    print("\n[6/6] Testing User's Pine Script (input.int & Support/Resistance)...")
+    print("\n[6/7] Testing User's Pine Script (input.int & Support/Resistance)...")
     user_script = """
     //@version=5
     indicator("Simple Support Resistance", overlay=true)
@@ -110,8 +110,35 @@ async def run_all_tests():
     assert user_res['plots'][1]['title'] == "Support"
     assert len(user_res['plots'][0]['data']) > 0, "Plot points should be non-empty!"
 
+    # 7. Test Indian Market, Black-Scholes Option Chain Matrix & Trending Screener
+    print("\n[7/7] Testing Indian Market & Black-Scholes Option Chain Matrix...")
+    from indian_market import indian_market
+    from greeks import calculate_greeks
+
+    # Test Black-Scholes Greeks
+    greeks_res = calculate_greeks(spot=22687.70, strike=22700, dte=4, iv=0.15, r=0.07, option_type="BOTH")
+    print(f"  -> BS Greeks: CE Price=₹{greeks_res['ce']['price']} (Delta={greeks_res['ce']['delta']}), PE Price=₹{greeks_res['pe']['price']} (Delta={greeks_res['pe']['delta']})")
+    assert greeks_res['ce']['price'] > 0 and greeks_res['pe']['price'] > 0
+
+    # Test NIFTY Option Chain Matrix
+    nifty_chain = indian_market.get_option_chain("NIFTY", count=21)
+    print(f"  -> NIFTY Option Chain: Spot=₹{nifty_chain['spot']} | PCR={nifty_chain['pcr']} | Max Pain=₹{nifty_chain['max_pain']} | ATM Straddle=₹{nifty_chain['straddle']}")
+    assert len(nifty_chain['strikes']) == 21
+    assert "call" in nifty_chain['strikes'][0] and "put" in nifty_chain['strikes'][0]
+
+    # Test Trending Screener Filters
+    gainers = indian_market.get_trending_stocks("top_gainers")
+    losers = indian_market.get_trending_stocks("top_losers")
+    low_price_vol = indian_market.get_trending_stocks("low_price_high_vol")
+    indices = indian_market.get_trending_stocks("indices")
+    print(f"  -> Screener Filters: Gainers={len(gainers['items'])}, Losers={len(losers['items'])}, Low Price High Vol={len(low_price_vol['items'])}, Indices={len(indices['items'])}")
+    assert len(gainers['items']) > 0
+    assert len(losers['items']) > 0
+    assert len(low_price_vol['items']) > 0
+    assert len(indices['items']) > 0
+
     print("\n==================================================")
-    print("   ALL 6 SYSTEM VERIFICATION TESTS PASSED (100%)! ")
+    print("   ALL 7 SYSTEM VERIFICATION TESTS PASSED (100%)! ")
     print("==================================================")
 
 if __name__ == "__main__":

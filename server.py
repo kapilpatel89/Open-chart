@@ -18,6 +18,8 @@ from fastapi.staticfiles import StaticFiles
 from coindcx_feed import CoinDCXFeed
 from order_manager import OrderManager
 from pine_engine import PineEngine
+from indian_market import indian_market
+from kotak_client import kotak_client
 
 app = FastAPI(title="Open Chart - 3D Trading Terminal", version="2.0.0")
 
@@ -96,9 +98,63 @@ async def get_markets():
 
 @app.get("/api/candles")
 async def get_candles(pair: str = "B-BTC_USDT", interval: str = "1h", limit: int = 150):
-    """Return historical OHLCV candlesticks."""
+    """Return historical OHLCV candlesticks for Crypto or Indian Markets."""
+    clean_sym = pair.replace("B-", "").replace("_USDT", "").replace("USDT", "").upper()
+    if clean_sym in indian_market.live_prices or "NIFTY" in clean_sym or "SENSEX" in clean_sym or "BANKEX" in clean_sym:
+        return indian_market.get_candles(clean_sym, interval, limit)
     candles = await asyncio.to_thread(feed.fetch_candles, pair, interval, limit)
     return candles
+
+# --- Indian Market & Options Chain Endpoints ---
+
+@app.get("/api/indian/indices")
+async def get_indian_indices():
+    """Return live quotes for all Indian benchmark indices & NSE/BSE market session status."""
+    return {
+        "indices": indian_market.get_indices_list(),
+        "market_session": indian_market.is_market_open()
+    }
+
+@app.get("/api/indian/trending")
+async def get_indian_trending(filter: str = "all", limit: int = 30):
+    """Return Indian market trending stocks with Top Up, Top Down, and Low Price High Vol filters."""
+    return indian_market.get_trending_stocks(filter_type=filter, limit=limit)
+
+@app.get("/api/indian/optionchain/{symbol}")
+async def get_indian_optionchain(symbol: str, expiry: Optional[str] = None, count: int = 21):
+    """Return complete Black-Scholes Option Chain Matrix with Greeks, PCR, and Max Pain."""
+    return indian_market.get_option_chain(underlying=symbol, expiry=expiry, count=count)
+
+@app.get("/api/indian/candles")
+async def get_indian_candles(symbol: str = "NIFTY", interval: str = "1h", limit: int = 150):
+    """Return OHLCV candlesticks for an Indian index or equity."""
+    return indian_market.get_candles(underlying=symbol, interval=interval, limit=limit)
+
+# --- Kotak Neo Trade API Endpoints ---
+
+@app.get("/api/kotak/status")
+async def get_kotak_status():
+    """Return Kotak Neo API connection and 2FA authentication state."""
+    return kotak_client.get_status()
+
+@app.post("/api/kotak/login/step1")
+async def kotak_login_step1(
+    consumer_key: str = Body(...),
+    mobile_number: str = Body(...),
+    ucc: str = Body(...),
+    mpin: Optional[str] = Body(None),
+    environment: str = Body("prod")
+):
+    """Step 1: Initiate Kotak Neo API session with credentials."""
+    return kotak_client.login_step1_initiate(consumer_key, mobile_number, ucc, mpin, environment)
+
+@app.post("/api/kotak/login/step2")
+async def kotak_login_step2(
+    totp: str = Body(...),
+    mpin: Optional[str] = Body(None)
+):
+    """Step 2: Validate 2FA TOTP/OTP and MPIN against Kotak Neo API."""
+    return kotak_client.login_step2_verify(totp, mpin)
 
 @app.get("/api/orderbook")
 async def get_orderbook(pair: str = "B-BTC_USDT", depth: int = 20):
