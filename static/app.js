@@ -340,6 +340,22 @@ class OpenChartApp {
             if (el) el.addEventListener('input', () => this.recalculateTpSlPreviews());
         });
 
+        // Quick Points Shortcut Buttons (+10 pts, +20 pts, +30 pts, +50 pts for TP; -10 pts, -20 pts for SL)
+        document.querySelectorAll('.btn-pt-shortcut.tp').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                const pts = parseFloat(btn.dataset.pts || 10);
+                this.applyShortcutPoints('tp', pts);
+            });
+        });
+        document.querySelectorAll('.btn-pt-shortcut.sl').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                const pts = parseFloat(btn.dataset.pts || 10);
+                this.applyShortcutPoints('sl', pts);
+            });
+        });
+
         submitBtn.addEventListener('click', () => this.handleOrderSubmit());
 
         // Context Menu Action Handlers (All Charts Support)
@@ -1455,8 +1471,15 @@ class OpenChartApp {
                     <td>${c.iv}%</td>
                     <td style="color:${cDeltaColor}">${c.delta}</td>
                     <td style="color:#a0b0c0">${c.theta}</td>
-                    <td class="td-ltp td-call-ltp" data-type="CE" data-strike="${s.strike}" data-ltp="${c.ltp}">
-                        <b>₹${c.ltp.toFixed(2)}</b>
+                    <td class="td-ltp td-call-ltp">
+                        <div class="opt-action-wrap">
+                            <button class="btn-opt-quick-buy buy-ce" data-symbol="${chain.symbol}" data-strike="${s.strike}" data-type="CE" data-ltp="${c.ltp}" title="1-Click Quick Buy with Auto Sell TP (+20 pts) & SL (-20 pts)">
+                                ⚡ BUY
+                            </button>
+                            <span class="opt-price-tag" data-symbol="${chain.symbol}" data-strike="${s.strike}" data-type="CE" data-ltp="${c.ltp}" title="Click to edit in Order Form">
+                                ₹${c.ltp.toFixed(2)}
+                            </span>
+                        </div>
                     </td>
 
                     <!-- STRIKE -->
@@ -1466,8 +1489,15 @@ class OpenChartApp {
                     </td>
 
                     <!-- PUTS DATA -->
-                    <td class="td-ltp td-put-ltp" data-type="PE" data-strike="${s.strike}" data-ltp="${p.ltp}">
-                        <b>₹${p.ltp.toFixed(2)}</b>
+                    <td class="td-ltp td-put-ltp">
+                        <div class="opt-action-wrap">
+                            <span class="opt-price-tag" data-symbol="${chain.symbol}" data-strike="${s.strike}" data-type="PE" data-ltp="${p.ltp}" title="Click to edit in Order Form">
+                                ₹${p.ltp.toFixed(2)}
+                            </span>
+                            <button class="btn-opt-quick-buy buy-pe" data-symbol="${chain.symbol}" data-strike="${s.strike}" data-type="PE" data-ltp="${p.ltp}" title="1-Click Quick Buy with Auto Sell TP (+20 pts) & SL (-20 pts)">
+                                ⚡ BUY
+                            </button>
+                        </div>
                     </td>
                     <td style="color:#a0b0c0">${p.theta}</td>
                     <td style="color:${pDeltaColor}">${p.delta}</td>
@@ -1481,25 +1511,179 @@ class OpenChartApp {
 
         tbody.innerHTML = rowsHtml;
 
-        // Click on Call or Put LTP opens quick trade order
-        tbody.querySelectorAll('.td-ltp').forEach(td => {
-            td.addEventListener('click', () => {
-                const type = td.dataset.type;
-                const strike = td.dataset.strike;
-                const ltp = td.dataset.ltp;
-                const optSymbol = `${chain.symbol} ${strike} ${type}`;
-                console.log(`[Option Chain] Selected contract: ${optSymbol} @ ₹${ltp}`);
-
-                // Load contract into order form
-                const orderSymEl = document.getElementById('order-symbol');
-                const orderPriceEl = document.getElementById('order-price');
-                if (orderSymEl) orderSymEl.value = optSymbol;
-                if (orderPriceEl) orderPriceEl.value = ltp;
-
-                // Close option chain and highlight order form
-                this.closeOptionChainModal();
+        // 1. Quick Buy button: Instant Buy + Immediate Auto Sell (TP & SL) Placement
+        tbody.querySelectorAll('.btn-opt-quick-buy').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const sym = btn.dataset.symbol || chain.symbol;
+                const strike = btn.dataset.strike;
+                const type = btn.dataset.type;
+                const ltp = parseFloat(btn.dataset.ltp);
+                await this.buyOptionContract(sym, strike, type, ltp, 20, 20);
             });
         });
+
+        // 2. Click on Price Tag: opens order form pre-filled with +20 pts TP and -20 pts SL
+        tbody.querySelectorAll('.opt-price-tag').forEach(tag => {
+            tag.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const sym = tag.dataset.symbol || chain.symbol;
+                const strike = tag.dataset.strike;
+                const type = tag.dataset.type;
+                const ltp = parseFloat(tag.dataset.ltp);
+                this.loadOptionToOrderForm(sym, strike, type, ltp);
+            });
+        });
+    }
+
+    async buyOptionContract(underlying, strike, optionType, ltp, customTpPts = 20, customSlPts = 20) {
+        const contractSymbol = `${underlying} ${strike} ${optionType}`;
+        const price = parseFloat(ltp) || 100.0;
+        const tpPrice = parseFloat((price + customTpPts).toFixed(2));
+        const slPrice = parseFloat((Math.max(1.0, price - customSlPts)).toFixed(2));
+
+        // Determine default lot size based on asset
+        let lotSize = 25; // NIFTY standard lot
+        if (underlying === 'BANKNIFTY') lotSize = 15;
+        else if (underlying === 'FINNIFTY') lotSize = 25;
+        else if (underlying === 'MIDCPNIFTY') lotSize = 50;
+        else if (underlying === 'SENSEX') lotSize = 10;
+        else if (underlying === 'BANKEX') lotSize = 15;
+        else lotSize = 100; // Stock option lot
+
+        const payload = {
+            symbol: contractSymbol,
+            side: 'buy',
+            order_type: 'market',
+            quantity: lotSize,
+            price: price,
+            take_profit: tpPrice,
+            stop_loss: slPrice,
+            source: 'option_chain_bracket'
+        };
+
+        // 1. Submit order to server or client engine
+        await this.placeOrder(payload);
+
+        // 2. Immediate confirmation notification with armed OCO sell orders
+        this.showToastNotification(
+            `✅ Bought ${contractSymbol} @ ₹${price.toFixed(2)} (Qty: ${lotSize})\n` +
+            `🎯 Exit Sell Orders Placed: TP @ ₹${tpPrice.toFixed(2)} (+${customTpPts} pts) • SL @ ₹${slPrice.toFixed(2)} (-${customSlPts} pts)`,
+            'success'
+        );
+
+        // 3. Switch current pair or active view to the option contract
+        this.currentPair = contractSymbol;
+        window.currentPair = contractSymbol;
+        this.updateSymbolTriggerDisplay();
+
+        // 4. Close option chain modal
+        this.closeOptionChainModal();
+
+        // 5. Update chart pending visual lines
+        if (this.chart && this.chart.setPendingOrderLines) {
+            this.chart.setPendingOrderLines(price, tpPrice, slPrice);
+        }
+
+        // 6. Ensure order panel and positions dock are updated
+        const dockBtn = document.querySelector('[data-dock="dock-positions"]');
+        if (dockBtn) dockBtn.click();
+        const bottomDock = document.getElementById('bottom-dock');
+        if (bottomDock) bottomDock.classList.remove('hidden');
+    }
+
+    loadOptionToOrderForm(underlying, strike, optionType, ltp) {
+        const contractSymbol = `${underlying} ${strike} ${optionType}`;
+        const sidebar = document.getElementById('sidebar');
+        if (sidebar) sidebar.classList.remove('hidden');
+        document.querySelector('[data-tab="tab-trade"]')?.click();
+
+        const orderSymEl = document.getElementById('order-symbol');
+        const orderPriceEl = document.getElementById('order-price');
+        const limitGroup = document.getElementById('limit-price-group');
+        const btnLimit = document.getElementById('btn-order-type-limit');
+
+        if (btnLimit) btnLimit.click();
+        if (limitGroup) limitGroup.style.display = 'block';
+        if (orderSymEl) orderSymEl.value = contractSymbol;
+        if (orderPriceEl) orderPriceEl.value = ltp.toFixed(2);
+
+        // Pre-fill +20 pts TP and -20 pts SL
+        const tpInput = document.getElementById('order-tp');
+        const slInput = document.getElementById('order-sl');
+        const chkTp = document.getElementById('check-tp');
+        const chkSl = document.getElementById('check-sl');
+
+        if (chkTp) chkTp.checked = true;
+        if (chkSl) chkSl.checked = true;
+        if (tpInput) tpInput.value = (ltp + 20).toFixed(2);
+        if (slInput) slInput.value = (Math.max(1, ltp - 20)).toFixed(2);
+
+        this.recalculateTpSlPreviews();
+        this.closeOptionChainModal();
+    }
+
+    applyShortcutPoints(type, points) {
+        let basePrice = 0;
+        const priceInput = document.getElementById('order-price');
+        if (priceInput && parseFloat(priceInput.value) > 0) {
+            basePrice = parseFloat(priceInput.value);
+        } else {
+            basePrice = this.getCurrentPrice();
+        }
+
+        if (basePrice <= 0) basePrice = 100;
+        const isBuy = this.orderSide === 'buy';
+
+        if (type === 'tp') {
+            const chkTp = document.getElementById('check-tp');
+            if (chkTp) chkTp.checked = true;
+            const targetPrice = isBuy ? (basePrice + points) : Math.max(0.01, basePrice - points);
+            const tpInput = document.getElementById('order-tp');
+            if (tpInput) {
+                tpInput.value = targetPrice.toFixed(2);
+            }
+        } else if (type === 'sl') {
+            const chkSl = document.getElementById('check-sl');
+            if (chkSl) chkSl.checked = true;
+            const targetPrice = isBuy ? Math.max(0.01, basePrice - points) : (basePrice + points);
+            const slInput = document.getElementById('order-sl');
+            if (slInput) {
+                slInput.value = targetPrice.toFixed(2);
+            }
+        }
+
+        this.recalculateTpSlPreviews();
+        if (this.chart && this.chart.setPendingOrderLines) {
+            const tpVal = document.getElementById('check-tp')?.checked ? parseFloat(document.getElementById('order-tp')?.value) : null;
+            const slVal = document.getElementById('check-sl')?.checked ? parseFloat(document.getElementById('order-sl')?.value) : null;
+            this.chart.setPendingOrderLines(basePrice, tpVal, slVal);
+        }
+    }
+
+    showToastNotification(message, type = 'success') {
+        let container = document.getElementById('chart-toast-container');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'chart-toast-container';
+            container.className = 'chart-toast-container';
+            document.body.appendChild(container);
+        }
+
+        const toast = document.createElement('div');
+        toast.className = `chart-toast ${type}`;
+        toast.textContent = message;
+
+        container.appendChild(toast);
+
+        setTimeout(() => {
+            toast.style.opacity = '0';
+            toast.style.transform = 'translateY(10px) scale(0.95)';
+            toast.style.transition = 'all 0.3s ease';
+            setTimeout(() => {
+                if (toast.parentNode) toast.parentNode.removeChild(toast);
+            }, 300);
+        }, 4500);
     }
 
     /* =========================================================================
@@ -2124,30 +2308,64 @@ class OpenChartApp {
 
     generateFallbackCandles(targetPair = null, targetPrice = null) {
         const pair = targetPair || this.currentPair;
-        const count = 100;
-        const now = Date.now();
-        const stepMs = 3600 * 1000;
+        const count = 120;
         const baseP = (targetPrice && targetPrice > 0) ? targetPrice : this.getKnownBasePrice(pair);
 
-        const candles = [];
-        let cur = baseP * 0.96;
-        for (let i = count; i >= 0; i--) {
-            const t = now - (i * stepMs);
-            const delta = (Math.random() - 0.48) * (cur * 0.008);
-            const open = cur;
-            const close = cur + delta;
-            const high = Math.max(open, close) + Math.random() * (cur * 0.004);
-            const low = Math.min(open, close) - Math.random() * (cur * 0.004);
+        const tf = (this.currentInterval || '1h').toLowerCase();
+        let stepMs = 3600 * 1000;
+        let volatility = 0.0055;
+
+        if (tf === '1m') {
+            stepMs = 60 * 1000;
+            volatility = 0.0008;
+        } else if (tf === '5m') {
+            stepMs = 300 * 1000;
+            volatility = 0.0016;
+        } else if (tf === '15m') {
+            stepMs = 900 * 1000;
+            volatility = 0.0028;
+        } else if (tf === '1h') {
+            stepMs = 3600 * 1000;
+            volatility = 0.0055;
+        } else if (tf === '4h') {
+            stepMs = 14400 * 1000;
+            volatility = 0.0110;
+        } else if (tf === '1d') {
+            stepMs = 86400 * 1000;
+            volatility = 0.0180;
+        }
+
+        const now = Date.now();
+        const snappedNow = Math.floor(now / stepMs) * stepMs;
+
+        const rawCandles = [];
+        let curClose = baseP;
+
+        // Walk backward from baseP so the current/last candle connects seamlessly with zero jump
+        for (let i = 0; i < count; i++) {
+            const t = snappedNow - (i * stepMs);
+            const pct = (Math.random() - 0.49) * volatility;
+            const open = curClose / (1.0 + pct);
+            const close = curClose;
+            const wickUp = Math.random() * (curClose * volatility * 0.45);
+            const wickDn = Math.random() * (curClose * volatility * 0.45);
+            const high = Math.max(open, close) + wickUp;
+            const low = Math.min(open, close) - wickDn;
             const vol = Math.random() * 50 + 10;
-            candles.push({ time: t, open, high, low, close, volume: vol });
-            cur = close;
+
+            rawCandles.push({
+                time: t,
+                open: parseFloat(open.toFixed(2)),
+                high: parseFloat(high.toFixed(2)),
+                low: parseFloat(low.toFixed(2)),
+                close: parseFloat(close.toFixed(2)),
+                volume: vol
+            });
+            curClose = open;
         }
-        if (candles.length) {
-            candles[candles.length - 1].close = baseP;
-            candles[candles.length - 1].high = Math.max(candles[candles.length - 1].high, baseP);
-            candles[candles.length - 1].low = Math.min(candles[candles.length - 1].low, baseP);
-        }
-        return candles;
+
+        rawCandles.reverse();
+        return rawCandles;
     }
 
     async loadCandles(forceReset = true) {
@@ -2617,19 +2835,94 @@ class OpenChartApp {
     }
 
     async placeOrder(orderPayload) {
+        let executed = false;
         try {
             const resp = await fetch('/api/orders', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(orderPayload)
             });
-            const data = await resp.json();
-            if (data.status === 'success') {
-                this.portfolio = data.portfolio;
-                this.updatePortfolioUI();
+            if (resp.ok) {
+                const data = await resp.json();
+                if (data.status === 'success') {
+                    this.portfolio = data.portfolio;
+                    this.updatePortfolioUI();
+                    executed = true;
+                }
             }
         } catch (e) {
-            console.error("Order error:", e);
+            // Server offline or static GitHub Pages fallback
+        }
+
+        // Standalone Client-Side Execution Fallback (0ms immediate responsiveness)
+        if (!executed) {
+            if (!this.portfolio) {
+                this.portfolio = {
+                    balance: 1000000,
+                    equity: 1000000,
+                    open_positions: [],
+                    open_orders: [],
+                    trade_history: []
+                };
+            }
+
+            const fillPrice = orderPayload.price || this.getCurrentPrice();
+            const orderQty = parseFloat(orderPayload.quantity) || 1;
+            const posId = `pos_${Math.random().toString(36).substring(2, 9)}`;
+
+            const newPos = {
+                id: posId,
+                symbol: orderPayload.symbol,
+                side: orderPayload.side,
+                quantity: orderQty,
+                entry_price: fillPrice,
+                current_price: fillPrice,
+                take_profit: orderPayload.take_profit,
+                stop_loss: orderPayload.stop_loss,
+                unrealized_pnl: 0.0,
+                unrealized_pnl_pct: 0.0,
+                opened_at: Date.now() / 1000,
+                source: orderPayload.source || 'manual'
+            };
+
+            this.portfolio.open_positions.unshift(newPos);
+
+            // Automatically place linked OCO Sell exit orders for TP & SL
+            const exitSide = orderPayload.side === 'buy' ? 'sell' : 'buy';
+            if (orderPayload.take_profit) {
+                this.portfolio.open_orders.unshift({
+                    id: `ord_tp_${Math.random().toString(36).substring(2, 8)}`,
+                    parent_pos_id: posId,
+                    symbol: orderPayload.symbol,
+                    side: exitSide,
+                    type: 'limit',
+                    quantity: orderQty,
+                    price: parseFloat(orderPayload.take_profit),
+                    take_profit: null,
+                    stop_loss: null,
+                    status: 'open',
+                    created_at: Date.now() / 1000,
+                    source: 'bracket_take_profit'
+                });
+            }
+            if (orderPayload.stop_loss) {
+                this.portfolio.open_orders.unshift({
+                    id: `ord_sl_${Math.random().toString(36).substring(2, 8)}`,
+                    parent_pos_id: posId,
+                    symbol: orderPayload.symbol,
+                    side: exitSide,
+                    type: 'stop',
+                    quantity: orderQty,
+                    price: parseFloat(orderPayload.stop_loss),
+                    take_profit: null,
+                    stop_loss: null,
+                    status: 'open',
+                    created_at: Date.now() / 1000,
+                    source: 'bracket_stop_loss'
+                });
+            }
+
+            this.updatePortfolioUI();
         }
     }
 
