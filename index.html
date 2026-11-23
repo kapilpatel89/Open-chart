@@ -19,6 +19,18 @@
                     <span class="logo-text">OPEN <span class="logo-accent">CHART</span></span>
                 </div>
 
+                <!-- Market Mode Switcher (Crypto vs Indian Market) -->
+                <div class="market-mode-switcher" id="market-mode-switcher">
+                    <button class="mode-switch-btn active" id="btn-mode-crypto" data-mode="crypto" title="Crypto Markets (Binance & CoinDCX)">🪙 Crypto</button>
+                    <button class="mode-switch-btn" id="btn-mode-ind" data-mode="ind" title="Indian Stock Market & F&O (NSE/BSE/Kotak)">🇮🇳 IND Market</button>
+                </div>
+
+                <!-- Indian Market Live Session Status Pill -->
+                <div class="ind-session-indicator" id="ind-session-indicator" style="display:none;" title="NSE/BSE Indian Trading Hours: 09:15 - 15:30 IST">
+                    <span class="session-pulse-dot" id="session-pulse-dot"></span>
+                    <span class="session-text" id="session-status-text">NSE/BSE: OPEN</span>
+                </div>
+
                 <!-- Coin Search & Fast Selector Trigger -->
                 <div class="market-search-box" id="symbol-search-trigger" title="Click to search 600+ coins (or press /)">
                     <span class="market-icon">⚡</span>
@@ -95,6 +107,17 @@
             </div>
 
             <div class="topbar-right">
+                <!-- Indian Market & F&O Quick Tools -->
+                <button id="btn-open-option-chain" class="btn-secondary btn-opt-chain" title="View Real-Time Black-Scholes Option Chain Matrix (Greeks, PCR, Max Pain)">
+                    <span>📊 Option Chain</span>
+                </button>
+                <button id="btn-open-trending" class="btn-secondary btn-trending-menu" title="Indian Market Trending Screener (Top Up, Top Down, Low Price High Volume)">
+                    <span>🔥 Trending</span>
+                </button>
+                <button id="btn-open-kotak-modal" class="btn-secondary btn-kotak-neo" title="Kotak Neo Trade API 2FA & Credentials Setup">
+                    <span>🔑 Kotak Neo</span>
+                </button>
+
                 <button id="btn-fullscreen" class="btn-secondary" title="Toggle Fullscreen Mode (F11)">
                     <span>⛶ Fullscreen</span>
                 </button>
@@ -484,6 +507,226 @@
             <div class="modal-footer">
                 <button class="btn-secondary" id="btn-cancel-save-script">Cancel</button>
                 <button class="btn-primary" id="btn-confirm-save-script">Save to My Scripts</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Black-Scholes European Option Chain Matrix Modal -->
+    <div id="option-chain-modal" class="custom-script-modal hidden">
+        <div class="modal-backdrop" id="opt-chain-backdrop"></div>
+        <div class="modal-card option-chain-card">
+            <div class="modal-header option-chain-header">
+                <div class="modal-header-left">
+                    <span class="modal-icon">📊</span>
+                    <div>
+                        <div class="chain-title-row">
+                            <h3>Option Chain Matrix: <span id="opt-chain-symbol" class="chain-sym-badge">NIFTY 50</span></h3>
+                            <span class="chain-spot-pill" id="opt-chain-spot">Spot: ₹22,687.70</span>
+                        </div>
+                        <div class="chain-subtitle" id="opt-chain-subinfo">Black-Scholes European Greeks • RBI Repo Rate 7% • NSE/BSE F&O</div>
+                    </div>
+                </div>
+                <div class="chain-controls-right">
+                    <div class="chain-select-wrap">
+                        <label>Expiry:</label>
+                        <select id="opt-chain-expiry-select" class="modal-select">
+                            <!-- Populated dynamically -->
+                        </select>
+                    </div>
+                    <div class="chain-select-wrap">
+                        <label>Strikes:</label>
+                        <select id="opt-chain-count-select" class="modal-select">
+                            <option value="11">ATM ±5</option>
+                            <option value="21" selected>ATM ±10</option>
+                            <option value="31">ATM ±15</option>
+                        </select>
+                    </div>
+                    <button class="btn-secondary btn-sm" id="btn-opt-chain-refresh" title="Refresh Option Chain">↻</button>
+                    <button class="modal-close-btn" id="btn-close-opt-chain">✕</button>
+                </div>
+            </div>
+
+            <!-- Option Chain Institutional Metrics Ribbon -->
+            <div class="chain-metrics-ribbon">
+                <div class="metric-cell">
+                    <span class="metric-label">PCR (OI):</span>
+                    <span class="metric-val" id="chain-pcr-val">1.18 (Bullish)</span>
+                </div>
+                <div class="metric-cell">
+                    <span class="metric-label">Max Pain:</span>
+                    <span class="metric-val" id="chain-max-pain-val">₹22,700</span>
+                </div>
+                <div class="metric-cell">
+                    <span class="metric-label">Call Wall (Res):</span>
+                    <span class="metric-val bullish" id="chain-call-wall-val">₹22,800</span>
+                </div>
+                <div class="metric-cell">
+                    <span class="metric-label">Put Wall (Sup):</span>
+                    <span class="metric-val bearish" id="chain-put-wall-val">₹22,600</span>
+                </div>
+                <div class="metric-cell">
+                    <span class="metric-label">ATM Straddle:</span>
+                    <span class="metric-val" id="chain-straddle-val">₹285.50 (±1.26%)</span>
+                </div>
+                <div class="metric-cell">
+                    <span class="metric-label">Expected Range:</span>
+                    <span class="metric-val" id="chain-range-val">₹22,402 - ₹22,973</span>
+                </div>
+            </div>
+
+            <!-- Table Container -->
+            <div class="option-chain-table-container">
+                <table class="opt-matrix-table" id="opt-matrix-table">
+                    <thead>
+                        <tr>
+                            <th colspan="7" class="col-head-calls">CALLS (CE)</th>
+                            <th rowspan="2" class="col-head-strike">STRIKE</th>
+                            <th colspan="7" class="col-head-puts">PUTS (PE)</th>
+                        </tr>
+                        <tr>
+                            <th>OI</th>
+                            <th>OI Chg</th>
+                            <th>Vol</th>
+                            <th>IV %</th>
+                            <th>Delta</th>
+                            <th>Theta</th>
+                            <th class="th-call-ltp">LTP (₹)</th>
+                            <th class="th-put-ltp">LTP (₹)</th>
+                            <th>Theta</th>
+                            <th>Delta</th>
+                            <th>IV %</th>
+                            <th>Vol</th>
+                            <th>OI Chg</th>
+                            <th>OI</th>
+                        </tr>
+                    </thead>
+                    <tbody id="opt-chain-tbody">
+                        <!-- Populated by JavaScript -->
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="chain-modal-footer">
+                <span>💡 Tip: Click on any <b>Call (CE)</b> or <b>Put (PE)</b> LTP to load into Order Form • Press <kbd>Esc</kbd> to close</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Indian Market Trending & Screener Modal -->
+    <div id="trending-screener-modal" class="custom-script-modal hidden">
+        <div class="modal-backdrop" id="trending-backdrop"></div>
+        <div class="modal-card trending-modal-card">
+            <div class="modal-header">
+                <div class="modal-header-left">
+                    <span class="modal-icon">🔥</span>
+                    <div>
+                        <h3>Indian Market Trending Screener</h3>
+                        <div class="chain-subtitle">Real-time NSE / BSE Scan: Top Gainers, Top Losers, Low Price High Volume Breakouts</div>
+                    </div>
+                </div>
+                <div class="chain-controls-right">
+                    <div class="ind-session-indicator" id="trending-session-pill">
+                        <span class="session-pulse-dot"></span>
+                        <span id="trending-session-text">NSE/BSE: OPEN</span>
+                    </div>
+                    <button class="modal-close-btn" id="btn-close-trending">✕</button>
+                </div>
+            </div>
+
+            <!-- Screener Categories & Search -->
+            <div class="trending-toolbar">
+                <div class="trending-filter-tabs" id="trending-filter-tabs">
+                    <button class="trend-tab-btn active" data-filter="all">🔥 All Trending</button>
+                    <button class="trend-tab-btn" data-filter="top_gainers">🟢 Top Up (Gainers)</button>
+                    <button class="trend-tab-btn" data-filter="top_losers">🔴 Top Down (Losers)</button>
+                    <button class="trend-tab-btn" data-filter="low_price_high_vol">⚡ Low Price & High Vol</button>
+                    <button class="trend-tab-btn" data-filter="indices">🏛️ Benchmark Indices</button>
+                </div>
+                <div class="trending-search-wrap">
+                    <input type="text" id="trending-search-input" placeholder="Search stock or index (e.g. SUZLON, TATASTEEL, NIFTY)...">
+                </div>
+            </div>
+
+            <!-- Screener Table Body -->
+            <div class="trending-table-container">
+                <table class="trending-table">
+                    <thead>
+                        <tr>
+                            <th>SYMBOL</th>
+                            <th>NAME & SECTOR</th>
+                            <th>EXCHANGE</th>
+                            <th class="text-right">PRICE (₹)</th>
+                            <th class="text-right">24H CHANGE</th>
+                            <th class="text-right">VOLUME</th>
+                            <th>TAGS</th>
+                            <th class="text-center">ACTION</th>
+                        </tr>
+                    </thead>
+                    <tbody id="trending-table-tbody">
+                        <!-- Populated by JavaScript -->
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="chain-modal-footer">
+                <span>Click <b>"Open Chart"</b> on any asset to load its 3D candlestick graph and Option Chain instantly.</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Kotak Neo Trade API Setup & 2FA Modal -->
+    <div id="kotak-api-modal" class="custom-script-modal hidden">
+        <div class="modal-backdrop" id="kotak-backdrop"></div>
+        <div class="modal-card kotak-modal-card">
+            <div class="modal-header">
+                <div class="modal-header-left">
+                    <span class="modal-icon">🔑</span>
+                    <div>
+                        <h3>Kotak Neo Trade API (2FA Authentication)</h3>
+                        <div class="chain-subtitle">Connect your official Kotak Neo account for direct Indian index and stock trade execution</div>
+                    </div>
+                </div>
+                <button class="modal-close-btn" id="btn-close-kotak">✕</button>
+            </div>
+            <div class="modal-body kotak-modal-body">
+                <div class="kotak-status-card" id="kotak-status-card">
+                    <span class="status-indicator-dot" id="kotak-indicator-dot"></span>
+                    <span id="kotak-status-label">Status: Paper Trading Mode Active (Virtual ₹10,00,000 Equity)</span>
+                </div>
+
+                <div class="kotak-form-grid">
+                    <div class="kotak-input-group">
+                        <label>Consumer Key Token:</label>
+                        <input type="password" id="kotak-consumer-key" class="modal-input" placeholder="Enter Kotak Neo Consumer Key token">
+                    </div>
+                    <div class="kotak-input-group">
+                        <label>Registered Mobile Number:</label>
+                        <input type="text" id="kotak-mobile" class="modal-input" placeholder="+91XXXXXXXXXX">
+                    </div>
+                    <div class="kotak-input-group">
+                        <label>Unique Client Code (UCC):</label>
+                        <input type="text" id="kotak-ucc" class="modal-input" placeholder="e.g. 123456 or ABCD12">
+                    </div>
+                    <div class="kotak-input-group">
+                        <label>Kotak 6-Digit MPIN:</label>
+                        <input type="password" id="kotak-mpin" class="modal-input" maxlength="6" placeholder="6-digit MPIN">
+                    </div>
+                    <div class="kotak-input-group">
+                        <label>6-Digit Authenticator TOTP / OTP:</label>
+                        <input type="text" id="kotak-totp" class="modal-input" maxlength="6" placeholder="Google/Microsoft Authenticator 6-digit TOTP">
+                    </div>
+                    <div class="kotak-input-group">
+                        <label>Environment:</label>
+                        <select id="kotak-env" class="modal-select">
+                            <option value="prod" selected>Production (Live Exchange)</option>
+                            <option value="uat">UAT / Sandbox</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" id="btn-kotak-disconnect">Use Paper Trading (₹10 Lakhs)</button>
+                <button class="btn-primary" id="btn-kotak-authenticate">⚡ Authenticate with Kotak 2FA</button>
             </div>
         </div>
     </div>

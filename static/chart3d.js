@@ -27,6 +27,7 @@ class OpenChart3D {
         this.candleStyle = this.options.candleStyle || 'normal';
         this.timeframe = this.options.timeframe || '1h';
         this.symbol = (this.options && this.options.symbol) ? String(this.options.symbol).replace('B-', '').replace('_USDT', '').replace('USDT', '').replace('_', '').toUpperCase() : 'BTC';
+        this.currency = (this.options && this.options.currency) || '$';
 
         this.candles = [];
         this.indicators = [];
@@ -124,14 +125,19 @@ class OpenChart3D {
         this.render();
     }
 
-    formatPrice(val) {
-        if (val === null || val === undefined || !isFinite(val)) return '0.00';
+    getCurrency() {
+        return window.currencySymbol || this.currency || '$';
+    }
+
+    formatPrice(val, includeCurrency = false) {
+        if (val === null || val === undefined || !isFinite(val)) return (includeCurrency ? this.getCurrency() : '') + '0.00';
         const abs = Math.abs(val);
-        if (abs >= 1000) return val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-        if (abs >= 1) return val.toFixed(2);
-        if (abs >= 0.01) return val.toFixed(4);
-        if (abs >= 0.0001) return val.toFixed(6);
-        return val.toFixed(8);
+        const prefix = includeCurrency ? this.getCurrency() : '';
+        if (abs >= 1000) return prefix + val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        if (abs >= 1) return prefix + val.toFixed(2);
+        if (abs >= 0.01) return prefix + val.toFixed(4);
+        if (abs >= 0.0001) return prefix + val.toFixed(6);
+        return prefix + val.toFixed(8);
     }
 
     setCandles(candles, forceReset = true, timeframe = null, symbol = null) {
