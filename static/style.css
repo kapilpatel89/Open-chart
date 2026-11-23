@@ -433,9 +433,21 @@ body {
     cursor: crosshair;
 }
 
-/* Chart Floating Controls (Hidden per user request) */
-.chart-floating-controls {
+/* Chart Floating Controls & HUD Bar (Completely removed per user request) */
+.chart-floating-controls,
+.chart-hint-badge,
+#btn-reset-view,
+#btn-zoom-in,
+#btn-zoom-out {
     display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+    height: 0 !important;
+    width: 0 !important;
+    position: absolute !important;
+    top: -9999px !important;
+    left: -9999px !important;
 }
 
 /* Timeframe Trend Bar (Inside Graph, Top Right) */

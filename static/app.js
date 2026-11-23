@@ -231,18 +231,8 @@ class OpenChartApp {
             if (el) el.addEventListener('change', () => this.applyQuickIndicators());
         });
 
-        // Chart Controls (Optional)
-        document.getElementById('btn-reset-view')?.addEventListener('click', () => this.chart.resetView());
-        document.getElementById('btn-zoom-in')?.addEventListener('click', () => {
-            this.chart.candleWidth = Math.min(60, this.chart.candleWidth * 1.25);
-            this.chart.candleGap = Math.round(this.chart.candleWidth * 0.4);
-            this.chart.render();
-        });
-        document.getElementById('btn-zoom-out')?.addEventListener('click', () => {
-            this.chart.candleWidth = Math.max(3, this.chart.candleWidth * 0.8);
-            this.chart.candleGap = Math.round(this.chart.candleWidth * 0.4);
-            this.chart.render();
-        });
+        // Purge legacy floating HUD bar and chart overlay controls from DOM
+        document.querySelectorAll('.chart-floating-controls, .chart-hint-badge, #btn-reset-view, #btn-zoom-in, #btn-zoom-out').forEach(el => el.remove());
 
         // Sidebar Tabs
         document.querySelectorAll('.sidebar-tabs .tab-btn').forEach(btn => {
@@ -607,42 +597,43 @@ class OpenChartApp {
     getDefaultIndianMarkets() {
         return [
             // Benchmark Indices
-            { symbol: "NIFTY", name: "NIFTY 50", last_price: "24180.50", change_24h: 0.85, volume: 85000000, category: "indices", exchange: "NSE" },
-            { symbol: "BANKNIFTY", name: "BANK NIFTY", last_price: "51850.00", change_24h: 1.25, volume: 45000000, category: "indices", exchange: "NSE" },
-            { symbol: "FINNIFTY", name: "FIN NIFTY", last_price: "23820.00", change_24h: 0.45, volume: 22000000, category: "indices", exchange: "NSE" },
-            { symbol: "MIDCPNIFTY", name: "MIDCAP NIFTY", last_price: "12850.00", change_24h: -0.65, volume: 18000000, category: "indices", exchange: "NSE" },
-            { symbol: "SENSEX", name: "BSE SENSEX", last_price: "79650.00", change_24h: 0.90, volume: 32000000, category: "indices", exchange: "BSE" },
-            { symbol: "BANKEX", name: "BSE BANKEX", last_price: "58450.00", change_24h: 1.15, volume: 15000000, category: "indices", exchange: "BSE" },
-            { symbol: "INDIA VIX", name: "INDIA VIX", last_price: "14.80", change_24h: -2.60, volume: 1000000, category: "indices", exchange: "NSE" },
+            { symbol: "SENSEX", name: "BSE SENSEX", last_price: "83479.12", change_24h: 0.85, volume: 32000000, category: "indices", exchange: "BSE" },
+            { symbol: "NIFTY", name: "NIFTY 50", last_price: "25646.30", change_24h: 0.90, volume: 85000000, category: "indices", exchange: "NSE" },
+            { symbol: "BANKNIFTY", name: "BANK NIFTY", last_price: "63533.65", change_24h: 1.25, volume: 45000000, category: "indices", exchange: "NSE" },
+            { symbol: "FINNIFTY", name: "FIN NIFTY", last_price: "28545.75", change_24h: 0.45, volume: 22000000, category: "indices", exchange: "NSE" },
+            { symbol: "MIDCPNIFTY", name: "MIDCAP NIFTY", last_price: "14283.30", change_24h: -0.65, volume: 18000000, category: "indices", exchange: "NSE" },
+            { symbol: "BANKEX", name: "BSE BANKEX", last_price: "71465.41", change_24h: 1.15, volume: 15000000, category: "indices", exchange: "BSE" },
+            { symbol: "INDIA VIX", name: "INDIA VIX", last_price: "18.38", change_24h: -2.60, volume: 1000000, category: "indices", exchange: "NSE" },
 
             // Top Bluechip Large Caps
-            { symbol: "RELIANCE", name: "Reliance Industries Ltd", last_price: "1268.50", change_24h: 1.45, volume: 12840000, category: "large", exchange: "NSE" },
-            { symbol: "TCS", name: "Tata Consultancy Services", last_price: "4185.00", change_24h: -0.65, volume: 2150000, category: "large", exchange: "NSE" },
-            { symbol: "HDFCBANK", name: "HDFC Bank Ltd", last_price: "1745.00", change_24h: 1.10, volume: 14200000, category: "large", exchange: "NSE" },
-            { symbol: "INFY", name: "Infosys Ltd", last_price: "1885.00", change_24h: 2.15, volume: 8450000, category: "large", exchange: "NSE" },
-            { symbol: "ICICIBANK", name: "ICICI Bank Ltd", last_price: "1280.00", change_24h: 0.85, volume: 9780000, category: "large", exchange: "NSE" },
-            { symbol: "TATAMOTORS", name: "Tata Motors Ltd", last_price: "795.00", change_24h: 3.40, volume: 16500000, category: "large", exchange: "NSE" },
-            { symbol: "SBIN", name: "State Bank of India", last_price: "825.00", change_24h: 1.75, volume: 16300000, category: "large", exchange: "NSE" },
-            { symbol: "BHARTIARTL", name: "Bharti Airtel Ltd", last_price: "1585.00", change_24h: -0.45, volume: 4900000, category: "large", exchange: "NSE" },
-            { symbol: "ITC", name: "ITC Ltd", last_price: "468.00", change_24h: 0.35, volume: 11200000, category: "large", exchange: "NSE" },
-            { symbol: "LT", name: "Larsen & Toubro Ltd", last_price: "3620.00", change_24h: 2.60, volume: 3200000, category: "large", exchange: "NSE" },
-            { symbol: "BAJFINANCE", name: "Bajaj Finance Ltd", last_price: "6850.00", change_24h: -1.85, volume: 1850000, category: "large", exchange: "NSE" },
-            { symbol: "MARUTI", name: "Maruti Suzuki India", last_price: "11250.00", change_24h: 0.95, volume: 650000, category: "large", exchange: "NSE" },
+            { symbol: "RELIANCE", name: "Reliance Industries Ltd", last_price: "1365.90", change_24h: 0.45, volume: 12840000, category: "large", exchange: "NSE" },
+            { symbol: "TCS", name: "Tata Consultancy Services", last_price: "2464.00", change_24h: 2.38, volume: 3150000, category: "large", exchange: "NSE" },
+            { symbol: "HDFCBANK", name: "HDFC Bank Ltd", last_price: "833.95", change_24h: 2.33, volume: 18200000, category: "large", exchange: "NSE" },
+            { symbol: "INFY", name: "Infosys Ltd", last_price: "1124.00", change_24h: -0.53, volume: 9450000, category: "large", exchange: "NSE" },
+            { symbol: "ICICIBANK", name: "ICICI Bank Ltd", last_price: "1617.70", change_24h: 1.19, volume: 11780000, category: "large", exchange: "NSE" },
+            { symbol: "TATAMOTORS", name: "Tata Motors Ltd", last_price: "785.00", change_24h: 1.85, volume: 16500000, category: "large", exchange: "NSE" },
+            { symbol: "SBIN", name: "State Bank of India", last_price: "1151.50", change_24h: 3.87, volume: 19300000, category: "large", exchange: "NSE" },
+            { symbol: "BHARTIARTL", name: "Bharti Airtel Ltd", last_price: "2140.20", change_24h: 0.10, volume: 5900000, category: "large", exchange: "NSE" },
+            { symbol: "ITC", name: "ITC Ltd", last_price: "299.40", change_24h: 2.08, volume: 14200000, category: "large", exchange: "NSE" },
+            { symbol: "LT", name: "Larsen & Toubro Ltd", last_price: "4171.30", change_24h: 0.38, volume: 3200000, category: "large", exchange: "NSE" },
+            { symbol: "BAJFINANCE", name: "Bajaj Finance Ltd", last_price: "1110.90", change_24h: -0.91, volume: 2850000, category: "large", exchange: "NSE" },
+            { symbol: "MARUTI", name: "Maruti Suzuki India", last_price: "14241.00", change_24h: 12.80, volume: 950000, category: "large", exchange: "NSE" },
 
             // High Volume & Low-Price Breakouts (Penny & Momentum Stars)
-            { symbol: "SUZLON", name: "Suzlon Energy Ltd", last_price: "64.20", change_24h: 4.95, volume: 142000000, category: "high_vol", exchange: "NSE" },
-            { symbol: "IDEA", name: "Vodafone Idea Ltd", last_price: "8.15", change_24h: -3.20, volume: 285000000, category: "high_vol", exchange: "NSE" },
-            { symbol: "YESBANK", name: "Yes Bank Ltd", last_price: "20.40", change_24h: 2.10, volume: 89000000, category: "high_vol", exchange: "NSE" },
-            { symbol: "TATASTEEL", name: "Tata Steel Ltd", last_price: "148.50", change_24h: 3.80, volume: 42000000, category: "high_vol", exchange: "NSE" },
-            { symbol: "IRFC", name: "Indian Railway Finance Corp", last_price: "158.00", change_24h: 5.40, volume: 38000000, category: "high_vol", exchange: "NSE" },
-            { symbol: "RVNL", name: "Rail Vikas Nigam Ltd", last_price: "415.00", change_24h: 6.85, volume: 29000000, category: "high_vol", exchange: "NSE" },
-            { symbol: "ZOMATO", name: "Zomato Ltd", last_price: "258.00", change_24h: 4.15, volume: 31000000, category: "high_vol", exchange: "NSE" },
-            { symbol: "PNB", name: "Punjab National Bank", last_price: "102.50", change_24h: -2.40, volume: 48000000, category: "high_vol", exchange: "NSE" },
-            { symbol: "NHPC", name: "NHPC Ltd", last_price: "84.20", change_24h: 1.90, volume: 34000000, category: "high_vol", exchange: "NSE" },
-            { symbol: "IOC", name: "Indian Oil Corporation", last_price: "138.00", change_24h: -0.80, volume: 24000000, category: "high_vol", exchange: "NSE" },
+            { symbol: "SUZLON", name: "Suzlon Energy Ltd", last_price: "36.90", change_24h: -0.78, volume: 142000000, category: "high_vol", exchange: "NSE" },
+            { symbol: "IDEA", name: "Vodafone Idea Ltd", last_price: "12.06", change_24h: -1.95, volume: 285000000, category: "high_vol", exchange: "NSE" },
+            { symbol: "YESBANK", name: "Yes Bank Ltd", last_price: "17.99", change_24h: 0.78, volume: 89000000, category: "high_vol", exchange: "NSE" },
+            { symbol: "TATASTEEL", name: "Tata Steel Ltd", last_price: "168.36", change_24h: -7.24, volume: 62000000, category: "high_vol", exchange: "NSE" },
+            { symbol: "IRFC", name: "Indian Railway Finance Corp", last_price: "82.75", change_24h: 0.12, volume: 38000000, category: "high_vol", exchange: "NSE" },
+            { symbol: "RVNL", name: "Rail Vikas Nigam Ltd", last_price: "190.49", change_24h: -2.56, volume: 29000000, category: "high_vol", exchange: "NSE" },
+            { symbol: "ZOMATO", name: "Zomato Ltd", last_price: "260.00", change_24h: 3.15, volume: 31000000, category: "high_vol", exchange: "NSE" },
+            { symbol: "PNB", name: "Punjab National Bank", last_price: "102.50", change_24h: -1.40, volume: 48000000, category: "high_vol", exchange: "NSE" },
+            { symbol: "NHPC", name: "NHPC Ltd", last_price: "84.20", change_24h: 1.10, volume: 34000000, category: "high_vol", exchange: "NSE" },
+            { symbol: "IOC", name: "Indian Oil Corporation", last_price: "142.10", change_24h: -0.80, volume: 24000000, category: "high_vol", exchange: "NSE" },
             { symbol: "GMRINFRA", name: "GMR Airports Infra Ltd", last_price: "83.25", change_24h: 3.25, volume: 27000000, category: "high_vol", exchange: "NSE" },
-            { symbol: "BHEL", name: "Bharat Heavy Electricals Ltd", last_price: "228.00", change_24h: 4.60, volume: 22000000, category: "high_vol", exchange: "NSE" },
-            { symbol: "SAIL", name: "Steel Authority of India", last_price: "118.00", change_24h: -1.40, volume: 21000000, category: "high_vol", exchange: "NSE" },
+            { symbol: "BHEL", name: "Bharat Heavy Electricals Ltd", last_price: "234.60", change_24h: 4.60, volume: 22000000, category: "high_vol", exchange: "NSE" },
+            { symbol: "SAIL", name: "Steel Authority of India", last_price: "121.50", change_24h: -1.40, volume: 21000000, category: "high_vol", exchange: "NSE" },
+            { symbol: "IDFCFIRSTB", name: "IDFC First Bank Ltd", last_price: "68.70", change_24h: 0.80, volume: 36000000, category: "high_vol", exchange: "NSE" },
             { symbol: "IDFCFIRSTB", name: "IDFC First Bank Ltd", last_price: "66.50", change_24h: 0.80, volume: 36000000, category: "high_vol", exchange: "NSE" }
         ];
     }
@@ -1769,34 +1760,36 @@ class OpenChartApp {
     getTrendingDataClient(filter = 'all') {
         const allItems = [
             // Benchmark Indices
-            { symbol: "NIFTY", name: "NIFTY 50", sector: "Benchmark Index", exchange: "NSE", price: 24180.50, change: 0.85, volume: 85000000, category: "indices", tags: ["Index", "F&O", "Core"] },
-            { symbol: "BANKNIFTY", name: "BANK NIFTY", sector: "Banking Benchmark", exchange: "NSE", price: 51850.00, change: 1.25, volume: 45000000, category: "indices", tags: ["Index", "F&O", "High Beta"] },
-            { symbol: "FINNIFTY", name: "FIN NIFTY", sector: "Financial Services", exchange: "NSE", price: 23820.00, change: 0.45, volume: 22000000, category: "indices", tags: ["Index", "F&O"] },
-            { symbol: "MIDCPNIFTY", name: "MIDCAP NIFTY", sector: "Midcap Index", exchange: "NSE", price: 12850.00, change: -0.65, volume: 18000000, category: "indices", tags: ["Index", "Midcap"] },
-            { symbol: "SENSEX", name: "BSE SENSEX", sector: "BSE Benchmark", exchange: "BSE", price: 79650.00, change: 0.90, volume: 32000000, category: "indices", tags: ["Index", "BSE"] },
-            { symbol: "BANKEX", name: "BSE BANKEX", sector: "BSE Banking", exchange: "BSE", price: 58450.00, change: 1.15, volume: 15000000, category: "indices", tags: ["Index", "BSE"] },
+            { symbol: "SENSEX", name: "BSE SENSEX", sector: "BSE Benchmark", exchange: "BSE", price: 83479.12, change: 0.85, volume: 32000000, category: "indices", tags: ["Index", "BSE", "Core"] },
+            { symbol: "NIFTY", name: "NIFTY 50", sector: "Benchmark Index", exchange: "NSE", price: 25646.30, change: 0.90, volume: 85000000, category: "indices", tags: ["Index", "F&O", "Core"] },
+            { symbol: "BANKNIFTY", name: "BANK NIFTY", sector: "Banking Benchmark", exchange: "NSE", price: 63533.65, change: 1.25, volume: 45000000, category: "indices", tags: ["Index", "F&O", "High Beta"] },
+            { symbol: "FINNIFTY", name: "FIN NIFTY", sector: "Financial Services", exchange: "NSE", price: 28545.75, change: 0.45, volume: 22000000, category: "indices", tags: ["Index", "F&O"] },
+            { symbol: "MIDCPNIFTY", name: "MIDCAP NIFTY", sector: "Midcap Index", exchange: "NSE", price: 14283.30, change: -0.65, volume: 18000000, category: "indices", tags: ["Index", "Midcap"] },
+            { symbol: "BANKEX", name: "BSE BANKEX", sector: "BSE Banking", exchange: "BSE", price: 71465.41, change: 1.15, volume: 15000000, category: "indices", tags: ["Index", "BSE"] },
 
             // Top Gainers (Top Up)
-            { symbol: "SUZLON", name: "Suzlon Energy", sector: "Renewable Energy / Wind", exchange: "NSE", price: 68.40, change: 6.80, volume: 142000000, category: "highvol", tags: ["Breakout", "Low Price", "High Vol"] },
-            { symbol: "IREDA", name: "Indian Renewable Energy Dev", sector: "PSU NBFC Green Energy", exchange: "NSE", price: 198.50, change: 5.40, volume: 56000000, category: "highvol", tags: ["PSU", "High Vol", "Green"] },
-            { symbol: "TATAMOTORS", name: "Tata Motors Ltd", sector: "Automobile & EV", exchange: "NSE", price: 825.00, change: 3.20, volume: 16000000, category: "largecap", tags: ["Auto", "F&O", "EV Leader"] },
-            { symbol: "IDEA", name: "Vodafone Idea", sector: "Telecom Services", exchange: "NSE", price: 8.45, change: 3.10, volume: 285000000, category: "highvol", tags: ["Penny Stock", "Top Volume", "Telecom"] },
-            { symbol: "RELIANCE", name: "Reliance Industries", sector: "Conglomerate & Energy", exchange: "NSE", price: 1268.50, change: 2.10, volume: 24000000, category: "largecap", tags: ["Nifty Heavyweight", "F&O"] },
-            { symbol: "ZOMATO", name: "Zomato Ltd", sector: "E-Commerce / Food Delivery", exchange: "NSE", price: 242.00, change: 2.80, volume: 38000000, category: "highvol", tags: ["New Age", "High Vol"] },
-            { symbol: "TATASTEEL", name: "Tata Steel Ltd", sector: "Metals & Mining", exchange: "NSE", price: 152.30, change: 1.85, volume: 48000000, category: "highvol", tags: ["Metal", "F&O", "High Vol"] },
+            { symbol: "MARUTI", name: "Maruti Suzuki India", sector: "Automobile Leader", exchange: "NSE", price: 14241.00, change: 12.80, volume: 950000, category: "largecap", tags: ["Auto", "F&O", "Top Gainer"] },
+            { symbol: "SBIN", name: "State Bank of India", sector: "Public Sector Banking", exchange: "NSE", price: 1151.50, change: 3.87, volume: 19300000, category: "largecap", tags: ["Banking", "F&O", "PSU"] },
+            { symbol: "TCS", name: "Tata Consultancy Services", sector: "IT Services", exchange: "NSE", price: 2464.00, change: 2.38, volume: 3150000, category: "largecap", tags: ["IT", "F&O", "TCS"] },
+            { symbol: "HDFCBANK", name: "HDFC Bank Ltd", sector: "Private Sector Bank", exchange: "NSE", price: 833.95, change: 2.33, volume: 18200000, category: "largecap", tags: ["Banking Heavyweight", "F&O"] },
+            { symbol: "RELIANCE", name: "Reliance Industries", sector: "Conglomerate & Energy", exchange: "NSE", price: 1365.90, change: 0.45, volume: 12840000, category: "largecap", tags: ["Nifty Heavyweight", "F&O"] },
+            { symbol: "ITC", name: "ITC Ltd", sector: "FMCG Leader", exchange: "NSE", price: 299.40, change: 2.08, volume: 14200000, category: "largecap", tags: ["FMCG", "F&O"] },
+            { symbol: "ICICIBANK", name: "ICICI Bank Ltd", sector: "Private Sector Banking", exchange: "NSE", price: 1617.70, change: 1.19, volume: 11780000, category: "largecap", tags: ["Banking", "F&O"] },
 
             // Top Losers (Top Down)
-            { symbol: "TCS", name: "Tata Consultancy Services", sector: "Information Technology", exchange: "NSE", price: 3950.00, change: -1.45, volume: 6800000, category: "largecap", tags: ["IT", "F&O", "TCS"] },
-            { symbol: "INFY", name: "Infosys Ltd", sector: "Information Technology", exchange: "NSE", price: 1820.00, change: -1.35, volume: 11000000, category: "largecap", tags: ["IT", "F&O"] },
-            { symbol: "YESBANK", name: "Yes Bank Ltd", sector: "Private Sector Bank", exchange: "NSE", price: 20.80, change: -0.95, volume: 95000000, category: "highvol", tags: ["Banking", "Low Price", "High Vol"] },
-            { symbol: "HDFCBANK", name: "HDFC Bank Ltd", sector: "Private Sector Bank", exchange: "NSE", price: 1740.00, change: -0.80, volume: 28000000, category: "largecap", tags: ["Banking Heavyweight", "F&O"] },
-            { symbol: "BHARTIARTL", name: "Bharti Airtel Ltd", sector: "Telecom & Cloud", exchange: "NSE", price: 1680.00, change: -0.55, volume: 8500000, category: "largecap", tags: ["Telecom", "F&O"] },
+            { symbol: "TATASTEEL", name: "Tata Steel Ltd", sector: "Metals & Mining", exchange: "NSE", price: 168.36, change: -7.24, volume: 62000000, category: "highvol", tags: ["Metal", "F&O", "Top Loser"] },
+            { symbol: "RVNL", name: "Rail Vikas Nigam Ltd", sector: "Railways Infrastructure", exchange: "NSE", price: 190.49, change: -2.56, volume: 29000000, category: "highvol", tags: ["Railway", "PSU"] },
+            { symbol: "IDEA", name: "Vodafone Idea", sector: "Telecom Services", exchange: "NSE", price: 12.06, change: -1.95, volume: 285000000, category: "highvol", tags: ["Penny Stock", "Top Volume"] },
+            { symbol: "BAJFINANCE", name: "Bajaj Finance Ltd", sector: "Consumer Finance", exchange: "NSE", price: 1110.90, change: -0.91, volume: 2850000, category: "largecap", tags: ["Finance", "F&O"] },
+            { symbol: "SUZLON", name: "Suzlon Energy", sector: "Renewable Energy / Wind", exchange: "NSE", price: 36.90, change: -0.78, volume: 142000000, category: "highvol", tags: ["Breakout", "Low Price"] },
+            { symbol: "INFY", name: "Infosys Ltd", sector: "Information Technology", exchange: "NSE", price: 1124.00, change: -0.53, volume: 9450000, category: "largecap", tags: ["IT", "F&O"] },
 
             // Low Price & High Volumes
-            { symbol: "NHPC", name: "NHPC Ltd", sector: "Hydroelectric Power", exchange: "NSE", price: 88.50, change: 1.60, volume: 32000000, category: "highvol", tags: ["PSU Power", "Low Price"] },
-            { symbol: "IRFC", name: "Indian Railway Finance Corp", sector: "Rail Infra Financing", exchange: "NSE", price: 148.00, change: 2.10, volume: 41000000, category: "highvol", tags: ["Railway", "PSU", "High Vol"] },
-            { symbol: "BHEL", name: "Bharat Heavy Electricals", sector: "Heavy Engineering & Power", exchange: "NSE", price: 232.00, change: 3.40, volume: 27000000, category: "highvol", tags: ["PSU", "Engineering"] },
-            { symbol: "SAIL", name: "Steel Authority of India", sector: "Steel & Metallurgy", exchange: "NSE", price: 124.50, change: 1.10, volume: 26000000, category: "highvol", tags: ["PSU Metal", "Low Price"] }
+            { symbol: "IRFC", name: "Indian Railway Finance Corp", sector: "Rail Infra Financing", exchange: "NSE", price: 82.75, change: 0.12, volume: 38000000, category: "highvol", tags: ["Railway", "PSU", "Low Price"] },
+            { symbol: "YESBANK", name: "Yes Bank Ltd", sector: "Private Sector Bank", exchange: "NSE", price: 17.99, change: 0.78, volume: 89000000, category: "highvol", tags: ["Banking", "Low Price", "High Vol"] },
+            { symbol: "NHPC", name: "NHPC Ltd", sector: "Hydroelectric Power", exchange: "NSE", price: 84.20, change: 1.10, volume: 34000000, category: "highvol", tags: ["PSU Power", "Low Price"] },
+            { symbol: "BHEL", name: "Bharat Heavy Electricals", sector: "Heavy Engineering & Power", exchange: "NSE", price: 234.60, change: 4.60, volume: 22000000, category: "highvol", tags: ["PSU", "Engineering"] },
+            { symbol: "SAIL", name: "Steel Authority of India", sector: "Steel & Metallurgy", exchange: "NSE", price: 121.50, change: -1.40, volume: 21000000, category: "highvol", tags: ["PSU Metal", "Low Price"] }
         ];
 
         if (filter === 'top_gainers') {
@@ -2382,40 +2375,40 @@ class OpenChartApp {
             'LDO': 1.15,
             'GALA': 0.022,
             'TON': 5.2,
-            // Indian Benchmark Indices
-            'NIFTY': 24180.50,
-            'BANKNIFTY': 51850.00,
-            'FINNIFTY': 23820.00,
-            'MIDCPNIFTY': 12850.00,
-            'SENSEX': 79650.00,
-            'BANKEX': 58450.00,
-            'INDIA VIX': 14.80,
+            // Indian Benchmark Indices (Accurate Live Spot Defaults)
+            'NIFTY': 25646.30,
+            'BANKNIFTY': 63533.65,
+            'FINNIFTY': 28545.75,
+            'MIDCPNIFTY': 14283.30,
+            'SENSEX': 83479.12,
+            'BANKEX': 71465.41,
+            'INDIA VIX': 18.38,
             // Top Bluechip Large Caps
-            'RELIANCE': 1268.50,
-            'TCS': 4185.00,
-            'HDFCBANK': 1745.00,
-            'INFY': 1885.00,
-            'ICICIBANK': 1280.00,
-            'TATAMOTORS': 795.00,
-            'SBIN': 825.00,
-            'BHARTIARTL': 1585.00,
-            'ITC': 468.00,
-            'LT': 3620.00,
-            'BAJFINANCE': 6850.00,
-            'MARUTI': 11250.00,
+            'RELIANCE': 1365.90,
+            'TCS': 2464.00,
+            'HDFCBANK': 833.95,
+            'INFY': 1124.00,
+            'ICICIBANK': 1617.70,
+            'TATAMOTORS': 738.45,
+            'SBIN': 1151.50,
+            'BHARTIARTL': 1876.50,
+            'ITC': 299.40,
+            'LT': 3650.00,
+            'BAJFINANCE': 1110.90,
+            'MARUTI': 14241.00,
             // High Volume & Breakouts
-            'SUZLON': 64.20,
-            'IREDA': 198.50,
-            'IDEA': 8.15,
-            'YESBANK': 20.40,
-            'TATASTEEL': 148.50,
-            'IRFC': 158.00,
-            'RVNL': 415.00,
-            'ZOMATO': 258.00,
-            'PNB': 102.50,
+            'SUZLON': 36.90,
+            'IREDA': 142.50,
+            'IDEA': 12.06,
+            'YESBANK': 17.99,
+            'TATASTEEL': 168.36,
+            'IRFC': 82.75,
+            'RVNL': 190.49,
+            'ZOMATO': 260.00,
+            'PNB': 104.20,
             'NHPC': 84.20,
-            'IOC': 142.10,
-            'GMRINFRA': 83.25,
+            'IOC': 138.10,
+            'GMRINFRA': 81.25,
             'BHEL': 234.60,
             'SAIL': 121.50,
             'IDFCFIRSTB': 68.70
