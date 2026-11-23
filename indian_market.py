@@ -482,7 +482,11 @@ class IndianMarketManager:
         }
 
     def get_candles(self, underlying: str = "NIFTY", interval: str = "1h", limit: int = 150) -> List[Dict[str, Any]]:
-        """Instant Candlestick retrieval with real or synthetic calibration."""
+        """
+        Instant Candlestick retrieval with realistic price continuity.
+        Walks backward from known live/spot base price with timeframe-scaled volatility,
+        completely eliminating artificial 'big green' jumps on the final candle.
+        """
         sym = underlying.upper().replace("B-", "").replace("_USDT", "").replace("USDT", "")
         cfg = INDIAN_INDICES.get(sym)
         if not cfg:
@@ -491,20 +495,50 @@ class IndianMarketManager:
         else:
             base_p = cfg["default_spot"]
 
-        now_ms = int(time.time() * 1000)
-        step_ms = 3600 * 1000 if "h" in interval else (86400 * 1000 if "d" in interval else 300 * 1000)
-        candles = []
-        cur = base_p * 0.96
+        # Map intervals to exact millisecond step sizes and volatility scales
+        interval_lower = interval.lower()
+        if interval_lower == "1m":
+            step_ms = 60 * 1000
+            volatility = 0.0008
+        elif interval_lower == "5m":
+            step_ms = 300 * 1000
+            volatility = 0.0016
+        elif interval_lower == "15m":
+            step_ms = 900 * 1000
+            volatility = 0.0028
+        elif interval_lower == "1h":
+            step_ms = 3600 * 1000
+            volatility = 0.0055
+        elif interval_lower == "4h":
+            step_ms = 14400 * 1000
+            volatility = 0.0110
+        elif interval_lower == "1d":
+            step_ms = 86400 * 1000
+            volatility = 0.0180
+        else:
+            step_ms = 3600 * 1000
+            volatility = 0.0055
 
-        for i in range(limit, -1, -1):
+        now_ms = int(time.time() * 1000)
+        # Snap now_ms to clean timeframe boundary
+        now_ms = (now_ms // step_ms) * step_ms
+
+        raw_candles = []
+        cur_close = float(base_p)
+
+        # Walk backward from current live price to ensure seamless open-close continuity
+        for i in range(limit):
             t = now_ms - (i * step_ms)
-            delta = (random.random() - 0.48) * (cur * 0.007)
-            o = cur
-            c = cur + delta
-            h = max(o, c) + random.random() * (cur * 0.004)
-            l = min(o, c) - random.random() * (cur * 0.004)
+            pct_change = (random.random() - 0.49) * volatility
+            o = cur_close / (1.0 + pct_change)
+            c = cur_close
+            wick_up = random.random() * (cur_close * volatility * 0.45)
+            wick_dn = random.random() * (cur_close * volatility * 0.45)
+            h = max(o, c) + wick_up
+            l = min(o, c) - wick_dn
             vol = random.randint(15000, 85000)
-            candles.append({
+
+            raw_candles.append({
                 "time": t,
                 "open": round(o, 2),
                 "high": round(h, 2),
@@ -512,13 +546,10 @@ class IndianMarketManager:
                 "close": round(c, 2),
                 "volume": vol
             })
-            cur = c
+            cur_close = o
 
-        if candles:
-            candles[-1]["close"] = round(base_p, 2)
-            candles[-1]["high"] = max(candles[-1]["high"], round(base_p, 2))
-            candles[-1]["low"] = min(candles[-1]["low"], round(base_p, 2))
-
-        return candles
+        # Reverse to chronological order (oldest to newest)
+        raw_candles.reverse()
+        return raw_candles
 
 indian_market = IndianMarketManager()

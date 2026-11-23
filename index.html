@@ -229,6 +229,13 @@
                                 <span id="tp-profit-preview" class="preview-val bullish">+$150.00 (+2.5%)</span>
                             </div>
                             <input type="number" id="order-tp" step="0.01" placeholder="TP Target Price">
+                            <div class="quick-pts-row" id="tp-quick-pts">
+                                <span class="pts-label">Quick TP:</span>
+                                <button type="button" class="btn-pt-shortcut tp" data-pts="10">+10 pts</button>
+                                <button type="button" class="btn-pt-shortcut tp" data-pts="20">+20 pts</button>
+                                <button type="button" class="btn-pt-shortcut tp" data-pts="30">+30 pts</button>
+                                <button type="button" class="btn-pt-shortcut tp" data-pts="50">+50 pts</button>
+                            </div>
                         </div>
 
                         <!-- Visual Draggable Stop Loss (SL) -->
@@ -238,6 +245,13 @@
                                 <span id="sl-loss-preview" class="preview-val bearish">-$60.00 (-1.0%)</span>
                             </div>
                             <input type="number" id="order-sl" step="0.01" placeholder="SL Target Price">
+                            <div class="quick-pts-row" id="sl-quick-pts">
+                                <span class="pts-label">Quick SL:</span>
+                                <button type="button" class="btn-pt-shortcut sl" data-pts="10">-10 pts</button>
+                                <button type="button" class="btn-pt-shortcut sl" data-pts="20">-20 pts</button>
+                                <button type="button" class="btn-pt-shortcut sl" data-pts="30">-30 pts</button>
+                                <button type="button" class="btn-pt-shortcut sl" data-pts="50">-50 pts</button>
+                            </div>
                         </div>
 
                         <!-- Risk / Reward Metric -->
@@ -730,6 +744,9 @@
             </div>
         </div>
     </div>
+
+    <!-- Live Toast Alert Container -->
+    <div id="chart-toast-container" class="chart-toast-container"></div>
 
     <!-- Scripts -->
     <script src="static/chart3d.js"></script>

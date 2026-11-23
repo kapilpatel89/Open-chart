@@ -50,20 +50,32 @@ class OrderManager:
 
     def update_tp_sl(self, order_or_pos_id: str, take_profit: Optional[float], stop_loss: Optional[float]) -> bool:
         """Update Take-Profit and Stop-Loss for an open order or existing position."""
+        updated = False
         if order_or_pos_id in self.orders:
             if take_profit is not None:
                 self.orders[order_or_pos_id]["take_profit"] = float(take_profit)
             if stop_loss is not None:
                 self.orders[order_or_pos_id]["stop_loss"] = float(stop_loss)
-            return True
+            updated = True
 
         if order_or_pos_id in self.positions:
             if take_profit is not None:
                 self.positions[order_or_pos_id]["take_profit"] = float(take_profit)
             if stop_loss is not None:
                 self.positions[order_or_pos_id]["stop_loss"] = float(stop_loss)
-            return True
-        return False
+            updated = True
+
+        # Also update linked bracket exit orders
+        for o in self.orders.values():
+            if o.get("parent_pos_id") == order_or_pos_id and o.get("status") == "open":
+                if take_profit is not None and o.get("source") == "bracket_take_profit":
+                    o["price"] = float(take_profit)
+                    updated = True
+                if stop_loss is not None and o.get("source") == "bracket_stop_loss":
+                    o["price"] = float(stop_loss)
+                    updated = True
+
+        return updated
 
     def cancel_order(self, order_id: str) -> bool:
         if order_id in self.orders and self.orders[order_id]["status"] == "open":
@@ -103,13 +115,25 @@ class OrderManager:
                 order["filled_price"] = fill_price
                 order["filled_at"] = time.time()
 
-                # Open or add to position
-                pos = self._execute_position(order, fill_price)
-                events.append({
-                    "event": "order_filled",
-                    "order": order,
-                    "position": pos
-                })
+                if order.get("parent_pos_id"):
+                    # This is an exit order for an existing position!
+                    pos_id = order["parent_pos_id"]
+                    if pos_id in self.positions:
+                        reason = "take_profit" if "take_profit" in order.get("source", "") else "stop_loss"
+                        closed_rec = self._close_position(pos_id, fill_price, reason)
+                        events.append({
+                            "event": "position_closed",
+                            "reason": reason,
+                            "record": closed_rec
+                        })
+                else:
+                    # Normal entry order: Open or add to position
+                    pos = self._execute_position(order, fill_price)
+                    events.append({
+                        "event": "order_filled",
+                        "order": order,
+                        "position": pos
+                    })
 
         # 2. Check open positions for Take Profit / Stop Loss
         for pos_id, pos in list(self.positions.items()):
@@ -169,12 +193,55 @@ class OrderManager:
             "source": order.get("source", "manual")
         }
         self.positions[pos_id] = pos
+
+        # Immediately place linked OCO Sell exit orders for Take-Profit and Stop-Loss
+        exit_side = "sell" if order["side"] == "buy" else "buy"
+        if order.get("take_profit"):
+            tp_order_id = f"ord_tp_{uuid.uuid4().hex[:6]}"
+            self.orders[tp_order_id] = {
+                "id": tp_order_id,
+                "parent_pos_id": pos_id,
+                "symbol": order["symbol"],
+                "side": exit_side,
+                "type": "limit",
+                "quantity": order["quantity"],
+                "price": float(order["take_profit"]),
+                "take_profit": None,
+                "stop_loss": None,
+                "status": "open",
+                "filled_price": None,
+                "created_at": time.time(),
+                "source": "bracket_take_profit"
+            }
+        if order.get("stop_loss"):
+            sl_order_id = f"ord_sl_{uuid.uuid4().hex[:6]}"
+            self.orders[sl_order_id] = {
+                "id": sl_order_id,
+                "parent_pos_id": pos_id,
+                "symbol": order["symbol"],
+                "side": exit_side,
+                "type": "stop",
+                "quantity": order["quantity"],
+                "price": float(order["stop_loss"]),
+                "take_profit": None,
+                "stop_loss": None,
+                "status": "open",
+                "filled_price": None,
+                "created_at": time.time(),
+                "source": "bracket_stop_loss"
+            }
+
         return pos
 
     def _close_position(self, pos_id: str, exit_price: float, reason: str = "manual") -> Dict[str, Any]:
         pos = self.positions.pop(pos_id, None)
         if not pos:
             return {}
+
+        # Cancel any remaining linked TP/SL exit orders for this closed position
+        for o in self.orders.values():
+            if o.get("parent_pos_id") == pos_id and o.get("status") == "open":
+                o["status"] = "filled" if (o.get("source") == f"bracket_{reason}") else "cancelled"
 
         entry = pos["entry_price"]
         qty = pos["quantity"]
