@@ -137,8 +137,31 @@ async def run_all_tests():
     assert len(low_price_vol['items']) > 0
     assert len(indices['items']) > 0
 
+    # 8. Test Kotak Neo Zero-Storage Encrypted Relay Client & AES-256-CBC
+    print("\n[8/8] Testing Kotak Neo Encrypted Relay Client (AES-256-CBC)...")
+    from kotak_relay_client import KotakRelayClient
+    from kotak_client import kotak_client
+
+    relay = KotakRelayClient()
+    test_data = {
+        "symbol": "NIFTY24200CE",
+        "action": "BUY",
+        "quantity": 25,
+        "nonce": 123456
+    }
+    encrypted = relay.encrypt_payload(test_data)
+    assert isinstance(encrypted, str) and len(encrypted) > 20, "Relay AES-256 encryption failed!"
+    decrypted = relay.decrypt_payload(encrypted)
+    assert decrypted == test_data, "Relay AES-256 decryption mismatch!"
+    print(f"  -> Encrypted envelope verified: {encrypted[:32]}... -> Decrypted: {decrypted['symbol']}")
+
+    # Ping relay health check
+    ping_res = relay.ping()
+    print(f"  -> Relay Ping: Status={ping_res.get('status')} | Outbound Whitelist IP={ping_res.get('server_ip')}")
+    assert "server_ip" in ping_res
+
     print("\n==================================================")
-    print("   ALL 7 SYSTEM VERIFICATION TESTS PASSED (100%)! ")
+    print("   ALL 8 SYSTEM VERIFICATION TESTS PASSED (100%)! ")
     print("==================================================")
 
 if __name__ == "__main__":

@@ -1,0 +1,36 @@
+{
+    "summary": {
+        "total_pnl": 200,
+        "total_trades": 1,
+        "winning_trades": 1,
+        "losing_trades": 0,
+        "win_rate": 100,
+        "total_points": 10,
+        "avg_points_per_trade": 10,
+        "last_updated": "2026-11-09 03:10:15"
+    },
+    "trades": [
+        {
+            "trade_id": "TRD_20261109_031015_748",
+            "order_id": "PAPER_031015433",
+            "symbol": "SENSEX26NOV82000CE",
+            "underlying": "SENSEX",
+            "strike": 82000,
+            "option_type": "CE",
+            "side": "BUY",
+            "quantity": 20,
+            "lots": 1,
+            "entry_price": 215,
+            "exit_price": 225,
+            "target_points": 10,
+            "sl_points": 10,
+            "points": 10,
+            "pnl": 200,
+            "status": "PROFIT",
+            "exit_reason": "MANUAL_EXIT",
+            "entry_time": "2026-11-09 03:10:15",
+            "exit_time": "2026-11-09 03:10:15",
+            "duration_sec": 1
+        }
+    ]
+}
