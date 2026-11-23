@@ -137,12 +137,26 @@ async def get_indian_candles(symbol: str = "NIFTY", interval: str = "1h", limit:
     """Return OHLCV candlesticks for an Indian index or equity."""
     return indian_market.get_candles(underlying=symbol, interval=interval, limit=limit)
 
-# --- Kotak Neo Trade API Endpoints ---
+# --- Kotak Neo Trade API & Whitelisted Relay Endpoints ---
 
 @app.get("/api/kotak/status")
 async def get_kotak_status():
     """Return Kotak Neo API connection and 2FA authentication state."""
     return kotak_client.get_status()
+
+@app.get("/api/kotak/ping")
+async def ping_kotak_relay():
+    """Test connection to the whitelisted cPanel relay server and fetch its outbound static IP."""
+    return kotak_client.ping_relay()
+
+@app.post("/api/kotak/config")
+async def set_kotak_relay_config(
+    relay_url: str = Body(...),
+    passphrase: Optional[str] = Body(None)
+):
+    """Dynamically configure the cPanel relay endpoint URL."""
+    kotak_client.set_relay_config(relay_url, passphrase)
+    return {"status": "success", "relay_url": kotak_client.relay_url}
 
 @app.post("/api/kotak/login/step1")
 async def kotak_login_step1(
@@ -150,18 +164,64 @@ async def kotak_login_step1(
     mobile_number: str = Body(...),
     ucc: str = Body(...),
     mpin: Optional[str] = Body(None),
-    environment: str = Body("prod")
+    environment: str = Body("prod"),
+    relay_url: Optional[str] = Body(None)
 ):
-    """Step 1: Initiate Kotak Neo API session with credentials."""
-    return kotak_client.login_step1_initiate(consumer_key, mobile_number, ucc, mpin, environment)
+    """Step 1: Initiate Kotak Neo API session and verify relay reachability."""
+    return kotak_client.login_step1_initiate(consumer_key, mobile_number, ucc, mpin, environment, relay_url)
 
 @app.post("/api/kotak/login/step2")
 async def kotak_login_step2(
     totp: str = Body(...),
     mpin: Optional[str] = Body(None)
 ):
-    """Step 2: Validate 2FA TOTP/OTP and MPIN against Kotak Neo API."""
+    """Step 2: Validate 2FA TOTP/OTP and MPIN via whitelisted cPanel static IP relay."""
     return kotak_client.login_step2_verify(totp, mpin)
+
+@app.get("/api/kotak/limits")
+async def get_kotak_limits():
+    """Return real cash balance and margin limits from Kotak Neo."""
+    return kotak_client.get_live_limits()
+
+@app.get("/api/kotak/positions")
+async def get_kotak_positions():
+    """Return live broker positions from Kotak Neo."""
+    return kotak_client.get_live_positions()
+
+@app.get("/api/kotak/orders")
+async def get_kotak_orders():
+    """Return live broker orders from Kotak Neo."""
+    return kotak_client.get_live_orders()
+
+@app.post("/api/kotak/order/place")
+async def place_kotak_live_order(
+    symbol: str = Body(...),
+    transaction_type: str = Body(...),
+    quantity: int = Body(...),
+    order_type: str = Body("MKT"),
+    price: float = Body(0.0),
+    trigger_price: float = Body(0.0),
+    product: str = Body("MIS"),
+    exchange_segment: str = Body("nse_fo"),
+    tag: str = Body("open_chart_relay")
+):
+    """Directly place live order on NSE/BSE through whitelisted cPanel static IP relay."""
+    return kotak_client.place_live_order(
+        symbol=symbol,
+        transaction_type=transaction_type,
+        quantity=quantity,
+        order_type=order_type,
+        price=price,
+        trigger_price=trigger_price,
+        product=product,
+        exchange_segment=exchange_segment,
+        tag=tag
+    )
+
+@app.post("/api/kotak/order/cancel")
+async def cancel_kotak_live_order(order_id: str = Body(..., embed=True)):
+    """Cancel live order on Kotak Neo through whitelisted relay."""
+    return kotak_client.cancel_live_order(order_id)
 
 @app.get("/api/orderbook")
 async def get_orderbook(pair: str = "B-BTC_USDT", depth: int = 20):
@@ -194,7 +254,26 @@ async def place_order(
     stop_loss: Optional[float] = Body(None),
     source: str = Body("manual")
 ):
-    """Place a new order (Market or Limit) with optional visual TP/SL."""
+    """Place a new order (Market or Limit) with optional visual TP/SL and live Kotak relay execution."""
+    clean_sym = symbol.replace("B-", "").replace("_USDT", "").replace("USDT", "").strip().upper()
+    is_indian = (clean_sym in indian_market.live_prices 
+                 or "NIFTY" in clean_sym 
+                 or "SENSEX" in clean_sym 
+                 or "BANKEX" in clean_sym 
+                 or clean_sym.endswith(" CE") 
+                 or clean_sym.endswith(" PE"))
+
+    kotak_res = None
+    if is_indian and kotak_client.is_logged_in and kotak_client.relay_session:
+        # Route live order through whitelisted cPanel relay
+        kotak_res = kotak_client.place_live_order(
+            symbol=clean_sym,
+            transaction_type=side.upper(),
+            quantity=int(quantity),
+            order_type="MKT" if order_type.lower() == "market" else "L",
+            price=price or 0.0
+        )
+
     order = order_manager.place_order(
         symbol=symbol,
         side=side,
@@ -205,13 +284,28 @@ async def place_order(
         stop_loss=stop_loss,
         source=source
     )
+    if kotak_res:
+        order["kotak_live"] = kotak_res
     
     # Check if market order can execute immediately with latest price
-    cur_p = feed.live_prices.get(symbol) or feed.live_prices.get(f"B-{symbol}") or price
-    if cur_p and order_type == "market":
+    cur_p = None
+    if is_indian:
+        cur_p = indian_market.live_prices.get(clean_sym) or price
+        if not cur_p:
+            parts = clean_sym.split()
+            if len(parts) >= 3 and parts[-1] in ["CE", "PE"]:
+                from greeks import calculate_greeks
+                cfg = indian_market.INDIAN_INDICES.get(parts[0])
+                spot_val = cfg["default_spot"] if cfg else 1000.0
+                g = calculate_greeks(spot=spot_val, strike=float(parts[1]), dte=4, iv=0.15, option_type=parts[2])
+                cur_p = g["price"]
+    else:
+        cur_p = feed.live_prices.get(symbol) or feed.live_prices.get(f"B-{symbol}") or price
+
+    if cur_p and order_type.lower() == "market":
         order_manager.on_tick(symbol, cur_p)
 
-    return {"status": "success", "order": order, "portfolio": order_manager.get_summary()}
+    return {"status": "success", "order": order, "kotak_relay": kotak_res, "portfolio": order_manager.get_summary()}
 
 @app.put("/api/orders/{order_id}/tpsl")
 async def update_tp_sl(order_id: str, take_profit: Optional[float] = Body(None), stop_loss: Optional[float] = Body(None)):

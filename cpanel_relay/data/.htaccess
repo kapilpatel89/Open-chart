@@ -1,0 +1,8 @@
+# Protect JSON files from direct browser access
+Order deny,allow
+Deny from all
+<Files ~ "\.(json|lock)$">
+    Order allow,deny
+    Deny from all
+</Files>
+
