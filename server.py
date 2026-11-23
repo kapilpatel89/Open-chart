@@ -99,8 +99,15 @@ async def get_markets():
 @app.get("/api/candles")
 async def get_candles(pair: str = "B-BTC_USDT", interval: str = "1h", limit: int = 150):
     """Return historical OHLCV candlesticks for Crypto or Indian Markets."""
-    clean_sym = pair.replace("B-", "").replace("_USDT", "").replace("USDT", "").upper()
-    if clean_sym in indian_market.live_prices or "NIFTY" in clean_sym or "SENSEX" in clean_sym or "BANKEX" in clean_sym:
+    clean_sym = pair.replace("B-", "").replace("_USDT", "").replace("USDT", "").strip().upper()
+    base_candidate = clean_sym.split()[0] if clean_sym else ""
+    if (clean_sym in indian_market.live_prices 
+        or base_candidate in indian_market.live_prices 
+        or "NIFTY" in clean_sym 
+        or "SENSEX" in clean_sym 
+        or "BANKEX" in clean_sym 
+        or clean_sym.endswith(" CE") 
+        or clean_sym.endswith(" PE")):
         return indian_market.get_candles(clean_sym, interval, limit)
     candles = await asyncio.to_thread(feed.fetch_candles, pair, interval, limit)
     return candles
@@ -159,6 +166,16 @@ async def kotak_login_step2(
 @app.get("/api/orderbook")
 async def get_orderbook(pair: str = "B-BTC_USDT", depth: int = 20):
     """Return Level-2 bids & asks depth."""
+    clean_sym = pair.replace("B-", "").replace("_USDT", "").replace("USDT", "").strip().upper()
+    base_candidate = clean_sym.split()[0] if clean_sym else ""
+    if (clean_sym in indian_market.live_prices 
+        or base_candidate in indian_market.live_prices 
+        or "NIFTY" in clean_sym 
+        or "SENSEX" in clean_sym 
+        or "BANKEX" in clean_sym 
+        or clean_sym.endswith(" CE") 
+        or clean_sym.endswith(" PE")):
+        return indian_market.get_orderbook(clean_sym, depth)
     return await asyncio.to_thread(feed.fetch_orderbook, pair, depth)
 
 @app.get("/api/portfolio")
