@@ -8,7 +8,9 @@ import math
 import time
 import json
 import random
+import threading
 import urllib.request
+import urllib.parse
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List, Optional
 
@@ -26,8 +28,8 @@ INDIAN_INDICES = {
         "exchange_segment": "nse_fo",
         "lot_size": 25,
         "strike_step": 50,
-        "default_spot": 24180.50,
-        "prev_close": 24117.00,
+        "default_spot": 25646.30,
+        "prev_close": 25580.00,
         "yahoo_ticker": "^NSEI",
         "weekly_expiry_day": 3,  # Thursday
         "description": "NSE Flagship 50 Bluechip Index"
@@ -39,8 +41,8 @@ INDIAN_INDICES = {
         "exchange_segment": "nse_fo",
         "lot_size": 15,
         "strike_step": 100,
-        "default_spot": 51850.00,
-        "prev_close": 51650.00,
+        "default_spot": 63533.65,
+        "prev_close": 63250.00,
         "yahoo_ticker": "^NSEBANK",
         "weekly_expiry_day": 2,  # Wednesday
         "description": "NSE Banking Sector Benchmark"
@@ -52,8 +54,8 @@ INDIAN_INDICES = {
         "exchange_segment": "nse_fo",
         "lot_size": 25,
         "strike_step": 50,
-        "default_spot": 23820.00,
-        "prev_close": 23780.00,
+        "default_spot": 28545.75,
+        "prev_close": 28450.00,
         "yahoo_ticker": "NIFTY_FIN_SERVICE.NS",
         "weekly_expiry_day": 1,  # Tuesday
         "description": "NSE Financial Services Sector"
@@ -65,8 +67,8 @@ INDIAN_INDICES = {
         "exchange_segment": "nse_fo",
         "lot_size": 50,
         "strike_step": 25,
-        "default_spot": 12850.00,
-        "prev_close": 12810.00,
+        "default_spot": 14283.30,
+        "prev_close": 14210.00,
         "yahoo_ticker": "NIFTY_MID_SELECT.NS",
         "weekly_expiry_day": 0,  # Monday
         "description": "NSE Midcap Select Index"
@@ -78,8 +80,8 @@ INDIAN_INDICES = {
         "exchange_segment": "bse_fo",
         "lot_size": 10,
         "strike_step": 100,
-        "default_spot": 79650.00,
-        "prev_close": 79450.00,
+        "default_spot": 83479.12,
+        "prev_close": 83200.00,
         "yahoo_ticker": "^BSESN",
         "weekly_expiry_day": 4,  # Friday
         "description": "BSE 30 Premier Benchmark"
@@ -91,8 +93,8 @@ INDIAN_INDICES = {
         "exchange_segment": "bse_fo",
         "lot_size": 15,
         "strike_step": 100,
-        "default_spot": 58450.00,
-        "prev_close": 58200.00,
+        "default_spot": 71465.41,
+        "prev_close": 72696.05,
         "yahoo_ticker": "BSE-BANK.BO",
         "weekly_expiry_day": 0,  # Monday
         "description": "BSE Banking Sector Index"
@@ -104,8 +106,8 @@ INDIAN_INDICES = {
         "exchange_segment": "nse_cm",
         "lot_size": 1,
         "strike_step": 0.5,
-        "default_spot": 14.80,
-        "prev_close": 15.20,
+        "default_spot": 18.38,
+        "prev_close": 17.90,
         "yahoo_ticker": "^INDIAVIX",
         "weekly_expiry_day": 3,
         "description": "NSE Volatility Fear Gauge"
@@ -115,29 +117,29 @@ INDIAN_INDICES = {
 # Master List of Indian Equities (including High-Volume & Low-Price Breakouts)
 INDIAN_EQUITIES = [
     # Top Bluechip Large Caps
-    {"symbol": "RELIANCE", "name": "Reliance Industries Ltd", "exchange": "NSE", "price": 1268.50, "change_pct": 1.45, "volume": 12840000, "lot_size": 500, "strike_step": 20, "sector": "Energy & Conglomerate"},
-    {"symbol": "TCS", "name": "Tata Consultancy Services", "exchange": "NSE", "price": 4185.00, "change_pct": -0.65, "volume": 2150000, "lot_size": 175, "strike_step": 50, "sector": "IT & Software"},
-    {"symbol": "HDFCBANK", "name": "HDFC Bank Ltd", "exchange": "NSE", "price": 1745.00, "change_pct": 1.10, "volume": 14200000, "lot_size": 550, "strike_step": 20, "sector": "Banking & Finance"},
-    {"symbol": "INFY", "name": "Infosys Ltd", "exchange": "NSE", "price": 1885.00, "change_pct": 2.15, "volume": 8450000, "lot_size": 400, "strike_step": 20, "sector": "IT & Software"},
-    {"symbol": "ICICIBANK", "name": "ICICI Bank Ltd", "exchange": "NSE", "price": 1280.00, "change_pct": 0.85, "volume": 9780000, "lot_size": 700, "strike_step": 10, "sector": "Banking & Finance"},
-    {"symbol": "TATAMOTORS", "name": "Tata Motors Ltd", "exchange": "NSE", "price": 795.00, "change_pct": 3.40, "volume": 16500000, "lot_size": 700, "strike_step": 10, "sector": "Automotive"},
-    {"symbol": "SBIN", "name": "State Bank of India", "exchange": "NSE", "price": 825.00, "change_pct": 1.75, "volume": 16300000, "lot_size": 750, "strike_step": 10, "sector": "Banking & Finance"},
-    {"symbol": "BHARTIARTL", "name": "Bharti Airtel Ltd", "exchange": "NSE", "price": 1585.00, "change_pct": -0.45, "volume": 4900000, "lot_size": 475, "strike_step": 20, "sector": "Telecom"},
-    {"symbol": "ITC", "name": "ITC Ltd", "exchange": "NSE", "price": 468.00, "change_pct": 0.35, "volume": 11200000, "lot_size": 1600, "strike_step": 5, "sector": "FMCG"},
-    {"symbol": "LT", "name": "Larsen & Toubro Ltd", "exchange": "NSE", "price": 3620.00, "change_pct": 2.60, "volume": 3200000, "lot_size": 150, "strike_step": 50, "sector": "Infrastructure"},
-    {"symbol": "BAJFINANCE", "name": "Bajaj Finance Ltd", "exchange": "NSE", "price": 6850.00, "change_pct": -1.85, "volume": 1850000, "lot_size": 125, "strike_step": 50, "sector": "Finance"},
-    {"symbol": "MARUTI", "name": "Maruti Suzuki India", "exchange": "NSE", "price": 11250.00, "change_pct": 0.95, "volume": 650000, "lot_size": 50, "strike_step": 100, "sector": "Automotive"},
+    {"symbol": "RELIANCE", "name": "Reliance Industries Ltd", "exchange": "NSE", "price": 1365.90, "change_pct": 0.45, "volume": 12840000, "lot_size": 500, "strike_step": 20, "sector": "Energy & Conglomerate"},
+    {"symbol": "TCS", "name": "Tata Consultancy Services", "exchange": "NSE", "price": 2464.00, "change_pct": 2.38, "volume": 3150000, "lot_size": 175, "strike_step": 50, "sector": "IT & Software"},
+    {"symbol": "HDFCBANK", "name": "HDFC Bank Ltd", "exchange": "NSE", "price": 833.95, "change_pct": 2.33, "volume": 18200000, "lot_size": 550, "strike_step": 10, "sector": "Banking & Finance"},
+    {"symbol": "INFY", "name": "Infosys Ltd", "exchange": "NSE", "price": 1124.00, "change_pct": -0.53, "volume": 9450000, "lot_size": 400, "strike_step": 20, "sector": "IT & Software"},
+    {"symbol": "ICICIBANK", "name": "ICICI Bank Ltd", "exchange": "NSE", "price": 1617.70, "change_pct": 1.19, "volume": 11780000, "lot_size": 700, "strike_step": 10, "sector": "Banking & Finance"},
+    {"symbol": "TATAMOTORS", "name": "Tata Motors Ltd", "exchange": "NSE", "price": 785.00, "change_pct": 1.85, "volume": 16500000, "lot_size": 700, "strike_step": 10, "sector": "Automotive"},
+    {"symbol": "SBIN", "name": "State Bank of India", "exchange": "NSE", "price": 1151.50, "change_pct": 3.87, "volume": 19300000, "lot_size": 750, "strike_step": 10, "sector": "Banking & Finance"},
+    {"symbol": "BHARTIARTL", "name": "Bharti Airtel Ltd", "exchange": "NSE", "price": 2140.20, "change_pct": 0.10, "volume": 5900000, "lot_size": 475, "strike_step": 20, "sector": "Telecom"},
+    {"symbol": "ITC", "name": "ITC Ltd", "exchange": "NSE", "price": 299.40, "change_pct": 2.08, "volume": 14200000, "lot_size": 1600, "strike_step": 5, "sector": "FMCG"},
+    {"symbol": "LT", "name": "Larsen & Toubro Ltd", "exchange": "NSE", "price": 4171.30, "change_pct": 0.38, "volume": 3200000, "lot_size": 150, "strike_step": 50, "sector": "Infrastructure"},
+    {"symbol": "BAJFINANCE", "name": "Bajaj Finance Ltd", "exchange": "NSE", "price": 1110.90, "change_pct": -0.91, "volume": 2850000, "lot_size": 125, "strike_step": 20, "sector": "Finance"},
+    {"symbol": "MARUTI", "name": "Maruti Suzuki India", "exchange": "NSE", "price": 14241.00, "change_pct": 12.80, "volume": 950000, "lot_size": 50, "strike_step": 100, "sector": "Automotive"},
 
     # High-Volume & Low-Price Breakouts (Penny & Momentum Stars)
-    {"symbol": "SUZLON", "name": "Suzlon Energy Ltd", "exchange": "NSE", "price": 64.20, "change_pct": 4.95, "volume": 142000000, "lot_size": 5000, "strike_step": 2, "sector": "Renewable Energy"},
-    {"symbol": "IDEA", "name": "Vodafone Idea Ltd", "exchange": "NSE", "price": 8.15, "change_pct": -3.20, "volume": 285000000, "lot_size": 10000, "strike_step": 0.5, "sector": "Telecom"},
-    {"symbol": "YESBANK", "name": "Yes Bank Ltd", "exchange": "NSE", "price": 20.40, "change_pct": 2.10, "volume": 89000000, "lot_size": 10000, "strike_step": 1, "sector": "Banking & Finance"},
-    {"symbol": "TATASTEEL", "name": "Tata Steel Ltd", "exchange": "NSE", "price": 148.50, "change_pct": 3.80, "volume": 42000000, "lot_size": 5500, "strike_step": 2.5, "sector": "Metals & Mining"},
-    {"symbol": "IRFC", "name": "Indian Railway Finance Corp", "exchange": "NSE", "price": 158.00, "change_pct": 5.40, "volume": 38000000, "lot_size": 2500, "strike_step": 5, "sector": "Railway Finance"},
-    {"symbol": "RVNL", "name": "Rail Vikas Nigam Ltd", "exchange": "NSE", "price": 415.00, "change_pct": 6.85, "volume": 29000000, "lot_size": 1200, "strike_step": 10, "sector": "Railways Infra"},
-    {"symbol": "ZOMATO", "name": "Zomato Ltd", "exchange": "NSE", "price": 258.00, "change_pct": 4.15, "volume": 31000000, "lot_size": 2000, "strike_step": 5, "sector": "Consumer Internet"},
-    {"symbol": "PNB", "name": "Punjab National Bank", "exchange": "NSE", "price": 102.50, "change_pct": -2.40, "volume": 48000000, "lot_size": 8000, "strike_step": 2, "sector": "Banking"},
-    {"symbol": "NHPC", "name": "NHPC Ltd", "exchange": "NSE", "price": 84.20, "change_pct": 1.90, "volume": 34000000, "lot_size": 6000, "strike_step": 2, "sector": "Power Generation"},
+    {"symbol": "SUZLON", "name": "Suzlon Energy Ltd", "exchange": "NSE", "price": 36.90, "change_pct": -0.78, "volume": 142000000, "lot_size": 5000, "strike_step": 1, "sector": "Renewable Energy"},
+    {"symbol": "IDEA", "name": "Vodafone Idea Ltd", "exchange": "NSE", "price": 12.06, "change_pct": -1.95, "volume": 285000000, "lot_size": 10000, "strike_step": 0.5, "sector": "Telecom"},
+    {"symbol": "YESBANK", "name": "Yes Bank Ltd", "exchange": "NSE", "price": 17.99, "change_pct": 0.78, "volume": 89000000, "lot_size": 10000, "strike_step": 0.5, "sector": "Banking & Finance"},
+    {"symbol": "TATASTEEL", "name": "Tata Steel Ltd", "exchange": "NSE", "price": 168.36, "change_pct": -7.24, "volume": 62000000, "lot_size": 5500, "strike_step": 2.5, "sector": "Metals & Mining"},
+    {"symbol": "IRFC", "name": "Indian Railway Finance Corp", "exchange": "NSE", "price": 82.75, "change_pct": 0.12, "volume": 38000000, "lot_size": 2500, "strike_step": 2, "sector": "Railway Finance"},
+    {"symbol": "RVNL", "name": "Rail Vikas Nigam Ltd", "exchange": "NSE", "price": 190.49, "change_pct": -2.56, "volume": 29000000, "lot_size": 1200, "strike_step": 5, "sector": "Railways Infra"},
+    {"symbol": "ZOMATO", "name": "Zomato Ltd", "exchange": "NSE", "price": 260.00, "change_pct": 3.15, "volume": 31000000, "lot_size": 2000, "strike_step": 5, "sector": "Consumer Internet"},
+    {"symbol": "PNB", "name": "Punjab National Bank", "exchange": "NSE", "price": 102.50, "change_pct": -1.40, "volume": 48000000, "lot_size": 8000, "strike_step": 2, "sector": "Banking"},
+    {"symbol": "NHPC", "name": "NHPC Ltd", "exchange": "NSE", "price": 84.20, "change_pct": 1.10, "volume": 34000000, "lot_size": 6000, "strike_step": 2, "sector": "Power Generation"},
     {"symbol": "IOC", "name": "Indian Oil Corporation", "exchange": "NSE", "price": 142.10, "change_pct": -0.80, "volume": 24000000, "lot_size": 4875, "strike_step": 2.5, "sector": "Oil & Gas"},
     {"symbol": "GMRINFRA", "name": "GMR Airports Infra Ltd", "exchange": "NSE", "price": 83.25, "change_pct": 3.25, "volume": 27000000, "lot_size": 6000, "strike_step": 2, "sector": "Airports & Infra"},
     {"symbol": "BHEL", "name": "Bharat Heavy Electricals Ltd", "exchange": "NSE", "price": 234.60, "change_pct": 4.60, "volume": 22000000, "lot_size": 2625, "strike_step": 5, "sector": "Heavy Engineering"},
@@ -156,6 +158,42 @@ class IndianMarketManager:
             self.live_prices[eq["symbol"]] = eq["price"]
 
         self.candle_cache = {}
+        self._last_quote_fetch = 0.0
+
+        # Start non-blocking initial live quotes fetch
+        threading.Thread(target=self.refresh_live_quotes, daemon=True).start()
+
+    def refresh_live_quotes(self) -> Dict[str, Any]:
+        """
+        Fetches live market quotes for benchmark Indian indices from Yahoo Finance.
+        Updates self.live_prices dynamically with real exchange spot levels (e.g. SENSEX near 83,400+).
+        """
+        now = time.time()
+        if (now - getattr(self, "_last_quote_fetch", 0)) < 15:
+            return {"status": "cached", "live_prices": self.live_prices}
+
+        self._last_quote_fetch = now
+        updated = {}
+        for sym, cfg in INDIAN_INDICES.items():
+            tk = cfg.get("yahoo_ticker")
+            if not tk:
+                continue
+            try:
+                url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(tk)}?interval=1d&range=5d"
+                req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+                with urllib.request.urlopen(req, timeout=3.0) as r:
+                    data = json.loads(r.read())
+                    meta = data["chart"]["result"][0]["meta"]
+                    price = meta.get("regularMarketPrice")
+                    if price and price > 0:
+                        self.live_prices[sym] = round(float(price), 2)
+                        updated[sym] = self.live_prices[sym]
+                        prev = meta.get("chartPreviousClose") or meta.get("previousClose")
+                        if prev:
+                            cfg["prev_close"] = round(float(prev), 2)
+            except Exception:
+                pass
+        return {"status": "success", "updated": updated, "live_prices": self.live_prices}
 
     def is_market_open(self) -> Dict[str, Any]:
         """Check whether NSE/BSE active trading session is currently open (09:15 - 15:30 IST)."""
