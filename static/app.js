@@ -597,55 +597,150 @@ class OpenChartApp {
     getDefaultIndianMarkets() {
         return [
             // Benchmark Indices
-            { symbol: "SENSEX", name: "BSE SENSEX", last_price: "83479.12", change_24h: 0.85, volume: 32000000, category: "indices", exchange: "BSE" },
-            { symbol: "NIFTY", name: "NIFTY 50", last_price: "25646.30", change_24h: 0.90, volume: 85000000, category: "indices", exchange: "NSE" },
-            { symbol: "BANKNIFTY", name: "BANK NIFTY", last_price: "63533.65", change_24h: 1.25, volume: 45000000, category: "indices", exchange: "NSE" },
-            { symbol: "FINNIFTY", name: "FIN NIFTY", last_price: "28545.75", change_24h: 0.45, volume: 22000000, category: "indices", exchange: "NSE" },
-            { symbol: "MIDCPNIFTY", name: "MIDCAP NIFTY", last_price: "14283.30", change_24h: -0.65, volume: 18000000, category: "indices", exchange: "NSE" },
-            { symbol: "BANKEX", name: "BSE BANKEX", last_price: "71465.41", change_24h: 1.15, volume: 15000000, category: "indices", exchange: "BSE" },
-            { symbol: "INDIA VIX", name: "INDIA VIX", last_price: "18.38", change_24h: -2.60, volume: 1000000, category: "indices", exchange: "NSE" },
+            { symbol: "SENSEX", name: "BSE SENSEX", last_price: "83339.26", prev_close: 83938.30, change_24h: -0.71, volume: 32000000, category: "indices", exchange: "BSE" },
+            { symbol: "NIFTY", name: "NIFTY 50", last_price: "25607.20", prev_close: 25819.20, change_24h: -0.82, volume: 85000000, category: "indices", exchange: "NSE" },
+            { symbol: "BANKNIFTY", name: "BANK NIFTY", last_price: "63040.90", prev_close: 63703.20, change_24h: -1.04, volume: 45000000, category: "indices", exchange: "NSE" },
+            { symbol: "FINNIFTY", name: "FIN NIFTY", last_price: "28337.15", prev_close: 28764.90, change_24h: -1.49, volume: 22000000, category: "indices", exchange: "NSE" },
+            { symbol: "MIDCPNIFTY", name: "MIDCAP NIFTY", last_price: "14360.25", prev_close: 14340.60, change_24h: 0.14, volume: 18000000, category: "indices", exchange: "NSE" },
+            { symbol: "BANKEX", name: "BSE BANKEX", last_price: "71023.49", prev_close: 71634.68, change_24h: -0.85, volume: 15000000, category: "indices", exchange: "BSE" },
+            { symbol: "INDIA VIX", name: "INDIA VIX", last_price: "16.55", prev_close: 17.67, change_24h: -6.34, volume: 1000000, category: "indices", exchange: "NSE" },
 
             // Top Bluechip Large Caps
-            { symbol: "RELIANCE", name: "Reliance Industries Ltd", last_price: "1365.90", change_24h: 0.45, volume: 12840000, category: "large", exchange: "NSE" },
-            { symbol: "TCS", name: "Tata Consultancy Services", last_price: "2464.00", change_24h: 2.38, volume: 3150000, category: "large", exchange: "NSE" },
-            { symbol: "HDFCBANK", name: "HDFC Bank Ltd", last_price: "833.95", change_24h: 2.33, volume: 18200000, category: "large", exchange: "NSE" },
-            { symbol: "INFY", name: "Infosys Ltd", last_price: "1124.00", change_24h: -0.53, volume: 9450000, category: "large", exchange: "NSE" },
-            { symbol: "ICICIBANK", name: "ICICI Bank Ltd", last_price: "1617.70", change_24h: 1.19, volume: 11780000, category: "large", exchange: "NSE" },
-            { symbol: "TATAMOTORS", name: "Tata Motors Ltd", last_price: "785.00", change_24h: 1.85, volume: 16500000, category: "large", exchange: "NSE" },
-            { symbol: "SBIN", name: "State Bank of India", last_price: "1151.50", change_24h: 3.87, volume: 19300000, category: "large", exchange: "NSE" },
-            { symbol: "BHARTIARTL", name: "Bharti Airtel Ltd", last_price: "2140.20", change_24h: 0.10, volume: 5900000, category: "large", exchange: "NSE" },
-            { symbol: "ITC", name: "ITC Ltd", last_price: "299.40", change_24h: 2.08, volume: 14200000, category: "large", exchange: "NSE" },
-            { symbol: "LT", name: "Larsen & Toubro Ltd", last_price: "4171.30", change_24h: 0.38, volume: 3200000, category: "large", exchange: "NSE" },
-            { symbol: "BAJFINANCE", name: "Bajaj Finance Ltd", last_price: "1110.90", change_24h: -0.91, volume: 2850000, category: "large", exchange: "NSE" },
-            { symbol: "MARUTI", name: "Maruti Suzuki India", last_price: "14241.00", change_24h: 12.80, volume: 950000, category: "large", exchange: "NSE" },
+            { symbol: "RELIANCE", name: "Reliance Industries Ltd", last_price: "1382.60", prev_close: 1396.20, change_24h: -0.97, volume: 12170985, category: "large", exchange: "NSE" },
+            { symbol: "TCS", name: "Tata Consultancy Services", last_price: "2572.50", prev_close: 2640.30, change_24h: -2.57, volume: 3271968, category: "large", exchange: "NSE" },
+            { symbol: "HDFCBANK", name: "HDFC Bank Ltd", last_price: "857.25", prev_close: 862.00, change_24h: -0.55, volume: 32944475, category: "large", exchange: "NSE" },
+            { symbol: "INFY", name: "Infosys Ltd", last_price: "1151.30", prev_close: 1183.00, change_24h: -2.68, volume: 10012843, category: "large", exchange: "NSE" },
+            { symbol: "ICICIBANK", name: "ICICI Bank Ltd", last_price: "1593.40", prev_close: 1611.00, change_24h: -1.09, volume: 8936852, category: "large", exchange: "NSE" },
+            { symbol: "TATAMOTORS", name: "Tata Motors Passenger Vehicles", last_price: "258.00", prev_close: 262.00, change_24h: -1.53, volume: 7570858, category: "large", exchange: "NSE" },
+            { symbol: "SBIN", name: "State Bank of India", last_price: "1123.90", prev_close: 1136.65, change_24h: -1.12, volume: 7994315, category: "large", exchange: "NSE" },
+            { symbol: "BHARTIARTL", name: "Bharti Airtel Ltd", last_price: "2067.90", prev_close: 2102.50, change_24h: -1.65, volume: 3626541, category: "large", exchange: "NSE" },
+            { symbol: "ITC", name: "ITC Ltd", last_price: "304.70", prev_close: 307.00, change_24h: -0.75, volume: 12534210, category: "large", exchange: "NSE" },
+            { symbol: "LT", name: "Larsen & Toubro Ltd", last_price: "4108.50", prev_close: 4132.10, change_24h: -0.57, volume: 997930, category: "large", exchange: "NSE" },
+            { symbol: "BAJFINANCE", name: "Bajaj Finance Ltd", last_price: "1080.00", prev_close: 1097.85, change_24h: -1.63, volume: 6876207, category: "large", exchange: "NSE" },
+            { symbol: "MARUTI", name: "Maruti Suzuki India", last_price: "13765.00", prev_close: 14015.00, change_24h: -1.78, volume: 392631, category: "large", exchange: "NSE" },
 
             // High Volume & Low-Price Breakouts (Penny & Momentum Stars)
-            { symbol: "SUZLON", name: "Suzlon Energy Ltd", last_price: "36.90", change_24h: -0.78, volume: 142000000, category: "high_vol", exchange: "NSE" },
-            { symbol: "IDEA", name: "Vodafone Idea Ltd", last_price: "12.06", change_24h: -1.95, volume: 285000000, category: "high_vol", exchange: "NSE" },
-            { symbol: "YESBANK", name: "Yes Bank Ltd", last_price: "17.99", change_24h: 0.78, volume: 89000000, category: "high_vol", exchange: "NSE" },
-            { symbol: "TATASTEEL", name: "Tata Steel Ltd", last_price: "168.36", change_24h: -7.24, volume: 62000000, category: "high_vol", exchange: "NSE" },
-            { symbol: "IRFC", name: "Indian Railway Finance Corp", last_price: "82.75", change_24h: 0.12, volume: 38000000, category: "high_vol", exchange: "NSE" },
-            { symbol: "RVNL", name: "Rail Vikas Nigam Ltd", last_price: "190.49", change_24h: -2.56, volume: 29000000, category: "high_vol", exchange: "NSE" },
-            { symbol: "ZOMATO", name: "Zomato Ltd", last_price: "260.00", change_24h: 3.15, volume: 31000000, category: "high_vol", exchange: "NSE" },
-            { symbol: "PNB", name: "Punjab National Bank", last_price: "102.50", change_24h: -1.40, volume: 48000000, category: "high_vol", exchange: "NSE" },
-            { symbol: "NHPC", name: "NHPC Ltd", last_price: "84.20", change_24h: 1.10, volume: 34000000, category: "high_vol", exchange: "NSE" },
-            { symbol: "IOC", name: "Indian Oil Corporation", last_price: "142.10", change_24h: -0.80, volume: 24000000, category: "high_vol", exchange: "NSE" },
-            { symbol: "GMRINFRA", name: "GMR Airports Infra Ltd", last_price: "83.25", change_24h: 3.25, volume: 27000000, category: "high_vol", exchange: "NSE" },
-            { symbol: "BHEL", name: "Bharat Heavy Electricals Ltd", last_price: "234.60", change_24h: 4.60, volume: 22000000, category: "high_vol", exchange: "NSE" },
-            { symbol: "SAIL", name: "Steel Authority of India", last_price: "121.50", change_24h: -1.40, volume: 21000000, category: "high_vol", exchange: "NSE" },
-            { symbol: "IDFCFIRSTB", name: "IDFC First Bank Ltd", last_price: "68.70", change_24h: 0.80, volume: 36000000, category: "high_vol", exchange: "NSE" },
-            { symbol: "IDFCFIRSTB", name: "IDFC First Bank Ltd", last_price: "66.50", change_24h: 0.80, volume: 36000000, category: "high_vol", exchange: "NSE" }
+            { symbol: "SUZLON", name: "Suzlon Energy Ltd", last_price: "36.38", prev_close: 36.29, change_24h: 0.25, volume: 35768475, category: "high_vol", exchange: "NSE" },
+            { symbol: "IDEA", name: "Vodafone Idea Ltd", last_price: "11.55", prev_close: 11.60, change_24h: -0.43, volume: 166437180, category: "high_vol", exchange: "NSE" },
+            { symbol: "YESBANK", name: "Yes Bank Ltd", last_price: "17.80", prev_close: 17.68, change_24h: 0.68, volume: 108994949, category: "high_vol", exchange: "NSE" },
+            { symbol: "TATASTEEL", name: "Tata Steel Ltd", last_price: "163.94", prev_close: 163.54, change_24h: 0.24, volume: 43790447, category: "high_vol", exchange: "NSE" },
+            { symbol: "IRFC", name: "Indian Railway Finance Corp", last_price: "82.25", prev_close: 82.30, change_24h: -0.06, volume: 11322621, category: "high_vol", exchange: "NSE" },
+            { symbol: "RVNL", name: "Rail Vikas Nigam Ltd", last_price: "190.70", prev_close: 187.14, change_24h: 1.90, volume: 8810296, category: "high_vol", exchange: "NSE" },
+            { symbol: "ZOMATO", name: "Eternal (Zomato) Ltd", last_price: "363.00", prev_close: 367.70, change_24h: -1.28, volume: 18957580, category: "high_vol", exchange: "NSE" },
+            { symbol: "PNB", name: "Punjab National Bank", last_price: "146.50", prev_close: 147.50, change_24h: -0.68, volume: 23598220, category: "high_vol", exchange: "NSE" },
+            { symbol: "NHPC", name: "NHPC Ltd", last_price: "75.65", prev_close: 75.90, change_24h: -0.33, volume: 4170524, category: "high_vol", exchange: "NSE" },
+            { symbol: "IOC", name: "Indian Oil Corporation", last_price: "144.21", prev_close: 144.42, change_24h: -0.15, volume: 7046453, category: "high_vol", exchange: "NSE" },
+            { symbol: "GMRINFRA", name: "GMR Airports Ltd", last_price: "99.26", prev_close: 101.20, change_24h: -1.92, volume: 12007582, category: "high_vol", exchange: "NSE" },
+            { symbol: "BHEL", name: "Bharat Heavy Electricals Ltd", last_price: "421.95", prev_close: 418.95, change_24h: 0.72, volume: 6427022, category: "high_vol", exchange: "NSE" },
+            { symbol: "SAIL", name: "Steel Authority of India", last_price: "163.95", prev_close: 160.96, change_24h: 1.86, volume: 12386182, category: "high_vol", exchange: "NSE" },
+            { symbol: "IDFCFIRSTB", name: "IDFC First Bank Ltd", last_price: "86.80", prev_close: 86.71, change_24h: 0.10, volume: 23658413, category: "high_vol", exchange: "NSE" }
         ];
+    }
+
+    isIndianMarketOpenNow() {
+        const now = new Date();
+        const utcMs = now.getTime() + (now.getTimezoneOffset() * 60000);
+        const istDate = new Date(utcMs + (5.5 * 3600000));
+        const day = istDate.getDay();
+        if (day === 0 || day === 6) return false;
+        const currentMins = istDate.getHours() * 60 + istDate.getMinutes();
+        return currentMins >= (9 * 60 + 15) && currentMins <= (15 * 60 + 30);
+    }
+
+    async syncIndianLiveMarkets() {
+        if (!this.indianMarkets || !this.indianMarkets.length) {
+            this.indianMarkets = this.getDefaultIndianMarkets();
+        }
+        if (!this.indianQuotesMap) this.indianQuotesMap = {};
+
+        let synced = false;
+        // 1. Try local FastAPI backend first
+        try {
+            const ctrl = new AbortController();
+            const tm = setTimeout(() => ctrl.abort(), 3000);
+            const resp = await fetch('/api/indian/quotes', { signal: ctrl.signal });
+            clearTimeout(tm);
+            if (resp.ok) {
+                const payload = await resp.json();
+                if (payload && payload.quotes) {
+                    Object.assign(this.indianQuotesMap, payload.quotes);
+                    this.indianMarkets = this.indianMarkets.map(m => {
+                        const q = payload.quotes[m.symbol];
+                        if (q && q.ltp > 0) {
+                            return {
+                                ...m,
+                                last_price: parseFloat(q.ltp).toFixed(2),
+                                prev_close: q.prev_close || m.prev_close,
+                                change_24h: q.change_pct !== undefined ? q.change_pct : m.change_24h,
+                                high: q.high || m.high,
+                                low: q.low || m.low,
+                                volume: q.volume > 0 ? q.volume : m.volume
+                            };
+                        }
+                        return m;
+                    });
+                    synced = true;
+                }
+            }
+        } catch (e) {}
+
+        // 2. Fallback to configured cPanel relay quotes (for standalone GitHub Pages if CORS enabled)
+        if (!synced) {
+            const relayUrl = (document.getElementById('kotak-relay-url')?.value || localStorage.getItem('kotak_relay_url') || 'https://trade.ravikantadoor.in/simple/kotak_relay.php').trim();
+            if (relayUrl) {
+                try {
+                    const sep = relayUrl.includes('?') ? '&' : '?';
+                    const rCtrl = new AbortController();
+                    const rTm = setTimeout(() => rCtrl.abort(), 3500);
+                    const rResp = await fetch(`${relayUrl}${sep}action=quotes`, { signal: rCtrl.signal });
+                    clearTimeout(rTm);
+                    if (rResp.ok) {
+                        const payload = await rResp.json();
+                        if (payload && payload.quotes) {
+                            Object.assign(this.indianQuotesMap, payload.quotes);
+                            this.indianMarkets = this.indianMarkets.map(m => {
+                                const q = payload.quotes[m.symbol];
+                                if (q && q.ltp > 0) {
+                                    return {
+                                        ...m,
+                                        last_price: parseFloat(q.ltp).toFixed(2),
+                                        prev_close: q.prev_close || m.prev_close,
+                                        change_24h: q.change_pct !== undefined ? q.change_pct : m.change_24h,
+                                        high: q.high || m.high,
+                                        low: q.low || m.low,
+                                        volume: q.volume > 0 ? q.volume : m.volume
+                                    };
+                                }
+                                return m;
+                            });
+                            synced = true;
+                        }
+                    }
+                } catch (e) {}
+            }
+        }
+
+        if (synced && this.marketMode === 'ind') {
+            this.markets = this.indianMarkets;
+            this.populateCoinDropdown(this.indianMarkets);
+            this.updateSymbolTriggerDisplay();
+            this.updateTickerHeader();
+        }
+        return synced;
     }
 
     async loadMarkets() {
         this.indianMarkets = this.getDefaultIndianMarkets();
 
-        // If currently in Indian market mode, keep indianMarkets active and do not override with Binance crypto!
+        // If currently in Indian market mode, keep indianMarkets active and sync live NSE/BSE quotes!
         if (this.marketMode === 'ind') {
             this.markets = this.indianMarkets;
             this.populateCoinDropdown(this.indianMarkets);
+            await this.syncIndianLiveMarkets();
             return;
+        } else {
+            // Warm up Indian quotes in the background so switching is instant and accurate
+            this.syncIndianLiveMarkets().catch(() => {});
         }
 
         // Built-in list of top major crypto assets for 0ms instantaneous display
@@ -1107,6 +1202,9 @@ class OpenChartApp {
         window.currentPair = this.currentPair;
         this.populateCoinDropdown(this.markets);
         this.updateSymbolTriggerDisplay();
+        if (mode === 'ind') {
+            this.syncIndianLiveMarkets().catch(() => {});
+        }
         await this.onMarketChange();
     }
 
@@ -1280,7 +1378,7 @@ class OpenChartApp {
         } catch(e) {}
 
         // Standalone GitHub Pages Client-Side Black-Scholes Engine Fallback
-        const spot = this.getKnownBasePrice(sym);
+        const spot = (this.indianQuotesMap && this.indianQuotesMap[sym]?.ltp) || this.getKnownBasePrice(sym);
         const clientChain = this.generateClientOptionChain(sym, spot, numStrikes);
         this.renderOptionChainTable(clientChain);
     }
@@ -1743,54 +1841,78 @@ class OpenChartApp {
             const resp = await fetch(`/api/indian/trending?filter=${filter}`);
             if (resp.ok) {
                 const data = await resp.json();
-                if (Array.isArray(data) && data.length) {
-                    this.trendingCache = data;
-                    this.renderTrendingTable(data);
+                const rawItems = Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : null);
+                if (rawItems && rawItems.length) {
+                    const normalized = rawItems.map(item => ({
+                        ...item,
+                        change: item.change_pct !== undefined ? parseFloat(item.change_pct) : parseFloat(item.change || 0)
+                    }));
+                    this.trendingCache = normalized;
+                    this.renderTrendingTable(normalized);
                     return;
                 }
             }
         } catch(e) {}
 
-        // Standalone Client Fallback
+        // Standalone Client Fallback (enriched with any live relay quotes synced)
         const clientData = this.getTrendingDataClient(filter);
         this.trendingCache = clientData;
         this.renderTrendingTable(clientData);
     }
 
     getTrendingDataClient(filter = 'all') {
-        const allItems = [
+        const qMap = this.indianQuotesMap || {};
+        const rawItems = [
             // Benchmark Indices
-            { symbol: "SENSEX", name: "BSE SENSEX", sector: "BSE Benchmark", exchange: "BSE", price: 83479.12, change: 0.85, volume: 32000000, category: "indices", tags: ["Index", "BSE", "Core"] },
-            { symbol: "NIFTY", name: "NIFTY 50", sector: "Benchmark Index", exchange: "NSE", price: 25646.30, change: 0.90, volume: 85000000, category: "indices", tags: ["Index", "F&O", "Core"] },
-            { symbol: "BANKNIFTY", name: "BANK NIFTY", sector: "Banking Benchmark", exchange: "NSE", price: 63533.65, change: 1.25, volume: 45000000, category: "indices", tags: ["Index", "F&O", "High Beta"] },
-            { symbol: "FINNIFTY", name: "FIN NIFTY", sector: "Financial Services", exchange: "NSE", price: 28545.75, change: 0.45, volume: 22000000, category: "indices", tags: ["Index", "F&O"] },
-            { symbol: "MIDCPNIFTY", name: "MIDCAP NIFTY", sector: "Midcap Index", exchange: "NSE", price: 14283.30, change: -0.65, volume: 18000000, category: "indices", tags: ["Index", "Midcap"] },
-            { symbol: "BANKEX", name: "BSE BANKEX", sector: "BSE Banking", exchange: "BSE", price: 71465.41, change: 1.15, volume: 15000000, category: "indices", tags: ["Index", "BSE"] },
+            { symbol: "SENSEX", name: "BSE SENSEX", sector: "BSE Benchmark", exchange: "BSE", price: 83339.26, change: -0.71, volume: 32000000, category: "indices", tags: ["Index", "BSE", "Core"] },
+            { symbol: "NIFTY", name: "NIFTY 50", sector: "Benchmark Index", exchange: "NSE", price: 25607.20, change: -0.82, volume: 85000000, category: "indices", tags: ["Index", "F&O", "Core"] },
+            { symbol: "BANKNIFTY", name: "BANK NIFTY", sector: "Banking Benchmark", exchange: "NSE", price: 63040.90, change: -1.04, volume: 45000000, category: "indices", tags: ["Index", "F&O", "High Beta"] },
+            { symbol: "FINNIFTY", name: "FIN NIFTY", sector: "Financial Services", exchange: "NSE", price: 28337.15, change: -1.49, volume: 22000000, category: "indices", tags: ["Index", "F&O"] },
+            { symbol: "MIDCPNIFTY", name: "MIDCAP NIFTY", sector: "Midcap Index", exchange: "NSE", price: 14360.25, change: 0.14, volume: 18000000, category: "indices", tags: ["Index", "Midcap"] },
+            { symbol: "BANKEX", name: "BSE BANKEX", sector: "BSE Banking", exchange: "BSE", price: 71023.49, change: -0.85, volume: 15000000, category: "indices", tags: ["Index", "BSE"] },
 
-            // Top Gainers (Top Up)
-            { symbol: "MARUTI", name: "Maruti Suzuki India", sector: "Automobile Leader", exchange: "NSE", price: 14241.00, change: 12.80, volume: 950000, category: "largecap", tags: ["Auto", "F&O", "Top Gainer"] },
-            { symbol: "SBIN", name: "State Bank of India", sector: "Public Sector Banking", exchange: "NSE", price: 1151.50, change: 3.87, volume: 19300000, category: "largecap", tags: ["Banking", "F&O", "PSU"] },
-            { symbol: "TCS", name: "Tata Consultancy Services", sector: "IT Services", exchange: "NSE", price: 2464.00, change: 2.38, volume: 3150000, category: "largecap", tags: ["IT", "F&O", "TCS"] },
-            { symbol: "HDFCBANK", name: "HDFC Bank Ltd", sector: "Private Sector Bank", exchange: "NSE", price: 833.95, change: 2.33, volume: 18200000, category: "largecap", tags: ["Banking Heavyweight", "F&O"] },
-            { symbol: "RELIANCE", name: "Reliance Industries", sector: "Conglomerate & Energy", exchange: "NSE", price: 1365.90, change: 0.45, volume: 12840000, category: "largecap", tags: ["Nifty Heavyweight", "F&O"] },
-            { symbol: "ITC", name: "ITC Ltd", sector: "FMCG Leader", exchange: "NSE", price: 299.40, change: 2.08, volume: 14200000, category: "largecap", tags: ["FMCG", "F&O"] },
-            { symbol: "ICICIBANK", name: "ICICI Bank Ltd", sector: "Private Sector Banking", exchange: "NSE", price: 1617.70, change: 1.19, volume: 11780000, category: "largecap", tags: ["Banking", "F&O"] },
+            // Bluechips & Momentum Equities (Verified Live Prices)
+            { symbol: "RVNL", name: "Rail Vikas Nigam Ltd", sector: "Railways Infrastructure", exchange: "NSE", price: 190.70, change: 1.90, volume: 8810296, category: "highvol", tags: ["Railway", "PSU", "Top Up"] },
+            { symbol: "SAIL", name: "Steel Authority of India", sector: "Steel & Metallurgy", exchange: "NSE", price: 163.95, change: 1.86, volume: 12386182, category: "highvol", tags: ["PSU Metal", "Low Price", "Top Up"] },
+            { symbol: "BHEL", name: "Bharat Heavy Electricals", sector: "Heavy Engineering & Power", exchange: "NSE", price: 421.95, change: 0.72, volume: 6427022, category: "highvol", tags: ["PSU", "Engineering"] },
+            { symbol: "YESBANK", name: "Yes Bank Ltd", sector: "Private Sector Bank", exchange: "NSE", price: 17.80, change: 0.68, volume: 108994949, category: "highvol", tags: ["Banking", "Low Price", "High Vol"] },
+            { symbol: "SUZLON", name: "Suzlon Energy", sector: "Renewable Energy / Wind", exchange: "NSE", price: 36.38, change: 0.25, volume: 35768475, category: "highvol", tags: ["Breakout", "Low Price"] },
+            { symbol: "TATASTEEL", name: "Tata Steel Ltd", sector: "Metals & Mining", exchange: "NSE", price: 163.94, change: 0.24, volume: 43790447, category: "highvol", tags: ["Metal", "F&O"] },
+            { symbol: "IDFCFIRSTB", name: "IDFC First Bank Ltd", sector: "Private Banking", exchange: "NSE", price: 86.80, change: 0.10, volume: 23658413, category: "highvol", tags: ["Banking", "Low Price"] },
 
-            // Top Losers (Top Down)
-            { symbol: "TATASTEEL", name: "Tata Steel Ltd", sector: "Metals & Mining", exchange: "NSE", price: 168.36, change: -7.24, volume: 62000000, category: "highvol", tags: ["Metal", "F&O", "Top Loser"] },
-            { symbol: "RVNL", name: "Rail Vikas Nigam Ltd", sector: "Railways Infrastructure", exchange: "NSE", price: 190.49, change: -2.56, volume: 29000000, category: "highvol", tags: ["Railway", "PSU"] },
-            { symbol: "IDEA", name: "Vodafone Idea", sector: "Telecom Services", exchange: "NSE", price: 12.06, change: -1.95, volume: 285000000, category: "highvol", tags: ["Penny Stock", "Top Volume"] },
-            { symbol: "BAJFINANCE", name: "Bajaj Finance Ltd", sector: "Consumer Finance", exchange: "NSE", price: 1110.90, change: -0.91, volume: 2850000, category: "largecap", tags: ["Finance", "F&O"] },
-            { symbol: "SUZLON", name: "Suzlon Energy", sector: "Renewable Energy / Wind", exchange: "NSE", price: 36.90, change: -0.78, volume: 142000000, category: "highvol", tags: ["Breakout", "Low Price"] },
-            { symbol: "INFY", name: "Infosys Ltd", sector: "Information Technology", exchange: "NSE", price: 1124.00, change: -0.53, volume: 9450000, category: "largecap", tags: ["IT", "F&O"] },
-
-            // Low Price & High Volumes
-            { symbol: "IRFC", name: "Indian Railway Finance Corp", sector: "Rail Infra Financing", exchange: "NSE", price: 82.75, change: 0.12, volume: 38000000, category: "highvol", tags: ["Railway", "PSU", "Low Price"] },
-            { symbol: "YESBANK", name: "Yes Bank Ltd", sector: "Private Sector Bank", exchange: "NSE", price: 17.99, change: 0.78, volume: 89000000, category: "highvol", tags: ["Banking", "Low Price", "High Vol"] },
-            { symbol: "NHPC", name: "NHPC Ltd", sector: "Hydroelectric Power", exchange: "NSE", price: 84.20, change: 1.10, volume: 34000000, category: "highvol", tags: ["PSU Power", "Low Price"] },
-            { symbol: "BHEL", name: "Bharat Heavy Electricals", sector: "Heavy Engineering & Power", exchange: "NSE", price: 234.60, change: 4.60, volume: 22000000, category: "highvol", tags: ["PSU", "Engineering"] },
-            { symbol: "SAIL", name: "Steel Authority of India", sector: "Steel & Metallurgy", exchange: "NSE", price: 121.50, change: -1.40, volume: 21000000, category: "highvol", tags: ["PSU Metal", "Low Price"] }
+            { symbol: "IRFC", name: "Indian Railway Finance Corp", sector: "Rail Infra Financing", exchange: "NSE", price: 82.25, change: -0.06, volume: 11322621, category: "highvol", tags: ["Railway", "PSU", "Low Price"] },
+            { symbol: "IOC", name: "Indian Oil Corporation", sector: "Oil & Gas", exchange: "NSE", price: 144.21, change: -0.15, volume: 7046453, category: "highvol", tags: ["PSU Energy", "Low Price"] },
+            { symbol: "NHPC", name: "NHPC Ltd", sector: "Hydroelectric Power", exchange: "NSE", price: 75.65, change: -0.33, volume: 4170524, category: "highvol", tags: ["PSU Power", "Low Price"] },
+            { symbol: "IDEA", name: "Vodafone Idea", sector: "Telecom Services", exchange: "NSE", price: 11.55, change: -0.43, volume: 166437180, category: "highvol", tags: ["Penny Stock", "Top Volume"] },
+            { symbol: "HDFCBANK", name: "HDFC Bank Ltd", sector: "Private Sector Bank", exchange: "NSE", price: 857.25, change: -0.55, volume: 32944475, category: "largecap", tags: ["Banking Heavyweight", "F&O"] },
+            { symbol: "LT", name: "Larsen & Toubro Ltd", sector: "Infrastructure", exchange: "NSE", price: 4108.50, change: -0.57, volume: 997930, category: "largecap", tags: ["Infra", "F&O"] },
+            { symbol: "PNB", name: "Punjab National Bank", sector: "Public Sector Bank", exchange: "NSE", price: 146.50, change: -0.68, volume: 23598220, category: "highvol", tags: ["PSU Bank", "Low Price"] },
+            { symbol: "ITC", name: "ITC Ltd", sector: "FMCG Leader", exchange: "NSE", price: 304.70, change: -0.75, volume: 12534210, category: "largecap", tags: ["FMCG", "F&O"] },
+            { symbol: "RELIANCE", name: "Reliance Industries", sector: "Conglomerate & Energy", exchange: "NSE", price: 1382.60, change: -0.97, volume: 12170985, category: "largecap", tags: ["Nifty Heavyweight", "F&O"] },
+            { symbol: "ICICIBANK", name: "ICICI Bank Ltd", sector: "Private Sector Banking", exchange: "NSE", price: 1593.40, change: -1.09, volume: 8936852, category: "largecap", tags: ["Banking", "F&O"] },
+            { symbol: "SBIN", name: "State Bank of India", sector: "Public Sector Banking", exchange: "NSE", price: 1123.90, change: -1.12, volume: 7994315, category: "largecap", tags: ["Banking", "F&O", "PSU"] },
+            { symbol: "ZOMATO", name: "Eternal (Zomato) Ltd", sector: "Consumer Internet", exchange: "NSE", price: 363.00, change: -1.28, volume: 18957580, category: "largecap", tags: ["New Age Tech", "F&O"] },
+            { symbol: "TATAMOTORS", name: "Tata Motors Passenger Vehicles", sector: "Automotive", exchange: "NSE", price: 258.00, change: -1.53, volume: 7570858, category: "largecap", tags: ["Auto", "F&O"] },
+            { symbol: "BAJFINANCE", name: "Bajaj Finance Ltd", sector: "Consumer Finance", exchange: "NSE", price: 1080.00, change: -1.63, volume: 6876207, category: "largecap", tags: ["Finance", "F&O"] },
+            { symbol: "BHARTIARTL", name: "Bharti Airtel Ltd", sector: "Telecom", exchange: "NSE", price: 2067.90, change: -1.65, volume: 3626541, category: "largecap", tags: ["Telecom", "F&O"] },
+            { symbol: "MARUTI", name: "Maruti Suzuki India", sector: "Automobile Leader", exchange: "NSE", price: 13765.00, change: -1.78, volume: 392631, category: "largecap", tags: ["Auto", "F&O"] },
+            { symbol: "GMRINFRA", name: "GMR Airports Ltd", sector: "Airports & Infra", exchange: "NSE", price: 99.26, change: -1.92, volume: 12007582, category: "highvol", tags: ["Infra", "Low Price"] },
+            { symbol: "TCS", name: "Tata Consultancy Services", sector: "IT Services", exchange: "NSE", price: 2572.50, change: -2.57, volume: 3271968, category: "largecap", tags: ["IT", "F&O", "TCS"] },
+            { symbol: "INFY", name: "Infosys Ltd", sector: "Information Technology", exchange: "NSE", price: 1151.30, change: -2.68, volume: 10012843, category: "largecap", tags: ["IT", "F&O"] }
         ];
+
+        const allItems = rawItems.map(item => {
+            const q = qMap[item.symbol];
+            if (q && q.ltp > 0) {
+                return {
+                    ...item,
+                    price: parseFloat(q.ltp),
+                    change: q.change_pct !== undefined ? parseFloat(q.change_pct) : item.change,
+                    volume: q.volume > 0 ? q.volume : item.volume
+                };
+            }
+            return item;
+        });
 
         if (filter === 'top_gainers') {
             return allItems.filter(i => i.change > 0).sort((a, b) => b.change - a.change);
@@ -2375,44 +2497,47 @@ class OpenChartApp {
             'LDO': 1.15,
             'GALA': 0.022,
             'TON': 5.2,
-            // Indian Benchmark Indices (Accurate Live Spot Defaults)
-            'NIFTY': 25646.30,
-            'BANKNIFTY': 63533.65,
-            'FINNIFTY': 28545.75,
-            'MIDCPNIFTY': 14283.30,
-            'SENSEX': 83479.12,
-            'BANKEX': 71465.41,
-            'INDIA VIX': 18.38,
+            // Indian Benchmark Indices (Accurate Live/Closing Spot Defaults)
+            'NIFTY': 25607.20,
+            'BANKNIFTY': 63040.90,
+            'FINNIFTY': 28337.15,
+            'MIDCPNIFTY': 14360.25,
+            'SENSEX': 83339.26,
+            'BANKEX': 71023.49,
+            'INDIA VIX': 16.55,
             // Top Bluechip Large Caps
-            'RELIANCE': 1365.90,
-            'TCS': 2464.00,
-            'HDFCBANK': 833.95,
-            'INFY': 1124.00,
-            'ICICIBANK': 1617.70,
-            'TATAMOTORS': 738.45,
-            'SBIN': 1151.50,
-            'BHARTIARTL': 1876.50,
-            'ITC': 299.40,
-            'LT': 3650.00,
-            'BAJFINANCE': 1110.90,
-            'MARUTI': 14241.00,
+            'RELIANCE': 1382.60,
+            'TCS': 2572.50,
+            'HDFCBANK': 857.25,
+            'INFY': 1151.30,
+            'ICICIBANK': 1593.40,
+            'TATAMOTORS': 258.00,
+            'SBIN': 1123.90,
+            'BHARTIARTL': 2067.90,
+            'ITC': 304.70,
+            'LT': 4108.50,
+            'BAJFINANCE': 1080.00,
+            'MARUTI': 13765.00,
             // High Volume & Breakouts
-            'SUZLON': 36.90,
+            'SUZLON': 36.38,
             'IREDA': 142.50,
-            'IDEA': 12.06,
-            'YESBANK': 17.99,
-            'TATASTEEL': 168.36,
-            'IRFC': 82.75,
-            'RVNL': 190.49,
-            'ZOMATO': 260.00,
-            'PNB': 104.20,
-            'NHPC': 84.20,
-            'IOC': 138.10,
-            'GMRINFRA': 81.25,
-            'BHEL': 234.60,
-            'SAIL': 121.50,
-            'IDFCFIRSTB': 68.70
+            'IDEA': 11.55,
+            'YESBANK': 17.80,
+            'TATASTEEL': 163.94,
+            'IRFC': 82.25,
+            'RVNL': 190.70,
+            'ZOMATO': 363.00,
+            'PNB': 146.50,
+            'NHPC': 75.65,
+            'IOC': 144.21,
+            'GMRINFRA': 99.26,
+            'BHEL': 421.95,
+            'SAIL': 163.95,
+            'IDFCFIRSTB': 86.80
         };
+        if (this.indianQuotesMap && this.indianQuotesMap[clean]?.ltp > 0) {
+            return parseFloat(this.indianQuotesMap[clean].ltp);
+        }
         if (defaults[clean]) return defaults[clean];
         return 100.0;
     }
@@ -2554,6 +2679,11 @@ class OpenChartApp {
                 }
             }
 
+            // 2c. Indian Market Standalone Relay Fallback (NSE & BSE real candles when GitHub Pages / server offline)
+            if ((!candles || !candles.length) && this.marketMode === 'ind') {
+                candles = await this.fetchIndianRelayCandles(this.getCleanSymbol(), this.currentInterval);
+            }
+
             // 3. Fallback: Generate synthetic smooth candles if completely offline/blocked
             if (!candles || !candles.length) {
                 candles = this.generateFallbackCandles(this.currentPair);
@@ -2562,6 +2692,25 @@ class OpenChartApp {
             if (candles && candles.length) {
                 if (!this.candleCache) this.candleCache = new Map();
                 this.candleCache.set(cacheKey, candles);
+
+                // Sync live price map from authentic candle close
+                if (this.marketMode === 'ind') {
+                    const cleanSym = this.getCleanSymbol();
+                    const lastClose = candles[candles.length - 1]?.close;
+                    if (lastClose > 0) {
+                        if (!this.indianQuotesMap) this.indianQuotesMap = {};
+                        const prevClose = this.indianQuotesMap[cleanSym]?.prev_close
+                            || this.indianMarkets?.find(m => m.symbol === cleanSym)?.prev_close
+                            || candles[0]?.open;
+                        const chgPct = prevClose ? parseFloat((((lastClose - prevClose) / prevClose) * 100).toFixed(2)) : 0;
+                        this.indianQuotesMap[cleanSym] = {
+                            ...(this.indianQuotesMap[cleanSym] || {}),
+                            ltp: lastClose,
+                            prev_close: prevClose,
+                            change_pct: chgPct
+                        };
+                    }
+                }
 
                 this.chart.setCandles(candles, forceReset, this.currentInterval, this.cleanSymbol(this.currentPair));
                 this.updateTickerHeader();
@@ -2882,6 +3031,26 @@ class OpenChartApp {
         document.getElementById('rr-ratio').textContent = `${rr} : 1`;
     }
 
+    async fetchIndianRelayCandles(sym, interval = '1h') {
+        const relayUrl = (document.getElementById('kotak-relay-url')?.value || localStorage.getItem('kotak_relay_url') || 'https://trade.ravikantadoor.in/simple/kotak_relay.php').trim();
+        if (!relayUrl) return null;
+        try {
+            const sep = relayUrl.includes('?') ? '&' : '?';
+            const ctrl = new AbortController();
+            const tm = setTimeout(() => ctrl.abort(), 3500);
+            const url = `${relayUrl}${sep}action=candles&symbol=${encodeURIComponent(sym)}&interval=${encodeURIComponent(interval)}`;
+            const resp = await fetch(url, { signal: ctrl.signal });
+            clearTimeout(tm);
+            if (resp.ok) {
+                const payload = await resp.json();
+                if (payload && Array.isArray(payload.candles) && payload.candles.length) {
+                    return payload.candles;
+                }
+            }
+        } catch (e) {}
+        return null;
+    }
+
     updateTickerHeader() {
         const curPrice = this.getCurrentPrice();
         if (curPrice <= 0) return;
@@ -2896,8 +3065,40 @@ class OpenChartApp {
         }
 
         if (this.chart && this.chart.candles.length > 1 && (!chartClean || chartClean === clean)) {
-            const first = this.chart.candles[0];
-            const chg = ((curPrice - first.open) / first.open) * 100;
+            let chg = ((curPrice - this.chart.candles[0].open) / this.chart.candles[0].open) * 100;
+            let high = -Infinity, low = Infinity, vol = 0;
+
+            if (this.marketMode === 'ind') {
+                const q = (this.indianQuotesMap && this.indianQuotesMap[clean])
+                    || (this.indianMarkets && this.indianMarkets.find(m => m.symbol === clean));
+                if (q && q.prev_close > 0) {
+                    chg = ((curPrice - q.prev_close) / q.prev_close) * 100;
+                } else if (q && q.change_pct !== undefined) {
+                    chg = parseFloat(q.change_pct);
+                } else if (q && q.change_24h !== undefined) {
+                    chg = parseFloat(q.change_24h);
+                }
+                if (q && q.high > 0 && q.low > 0) {
+                    high = Math.max(parseFloat(q.high), curPrice);
+                    low = Math.min(parseFloat(q.low), curPrice);
+                }
+                if (q && q.volume > 0) {
+                    vol = parseFloat(q.volume);
+                }
+            }
+
+            if (high === -Infinity || low === Infinity) {
+                high = -Infinity;
+                low = Infinity;
+                this.chart.candles.forEach(c => {
+                    if (c.high > high) high = c.high;
+                    if (c.low < low) low = c.low;
+                    vol += c.volume;
+                });
+            } else if (vol <= 0) {
+                this.chart.candles.forEach(c => { vol += c.volume; });
+            }
+
             const isPos = chg >= 0;
             const chgEl = document.getElementById('ticker-change');
             if (chgEl) {
@@ -2905,18 +3106,15 @@ class OpenChartApp {
                 chgEl.className = `ticker-change ${isPos ? '' : 'bearish'}`;
             }
 
-            let high = -Infinity, low = Infinity, vol = 0;
-            this.chart.candles.forEach(c => {
-                if (c.high > high) high = c.high;
-                if (c.low < low) low = c.low;
-                vol += c.volume;
-            });
             const highEl = document.getElementById('ticker-high');
             const lowEl = document.getElementById('ticker-low');
             const volEl = document.getElementById('ticker-vol');
             if (highEl) highEl.textContent = `${sym}${this.formatPrice(high)}`;
             if (lowEl) lowEl.textContent = `${sym}${this.formatPrice(low)}`;
-            if (volEl) volEl.textContent = `${vol.toFixed(1)}`;
+            if (volEl) {
+                volEl.textContent = (vol >= 10000000) ? `${(vol / 10000000).toFixed(2)}Cr`
+                    : (vol >= 100000) ? `${(vol / 100000).toFixed(2)}L` : `${vol.toFixed(1)}`;
+            }
         }
     }
 
@@ -3465,6 +3663,11 @@ class OpenChartApp {
             } catch(e) {}
         }
 
+        // 2b. Indian Market Relay Fallback
+        if ((!candles || !candles.length) && this.marketMode === 'ind') {
+            candles = await this.fetchIndianRelayCandles(this.cleanSymbol(pane.pair), pane.interval);
+        }
+
         // 3. Fallback smooth candles
         if (!candles || !candles.length) {
             candles = this.generateFallbackCandlesFor(pane.pair);
@@ -3541,29 +3744,29 @@ class OpenChartApp {
 
     startIndianMarketTickEngine() {
         if (this.indTickInterval) clearInterval(this.indTickInterval);
-        this.indTickInterval = setInterval(() => {
+        // Poll real NSE/BSE quotes when market session is live; freeze at official close when closed
+        this.indTickInterval = setInterval(async () => {
             if (this.marketMode !== 'ind') return;
-            const curPrice = this.getCurrentPrice();
-            if (!curPrice || curPrice <= 0) return;
+            if (!this.isIndianMarketOpenNow()) return;
 
-            // Micro fluctuation (±0.02% to ±0.04%)
-            const deltaPct = (Math.random() - 0.495) * 0.0006;
-            const newPrice = parseFloat((curPrice * (1.0 + deltaPct)).toFixed(2));
-            const vol = Math.floor(Math.random() * 250 + 25);
-            const now = Date.now();
+            const synced = await this.syncIndianLiveMarkets().catch(() => false);
+            if (!synced) return;
 
-            const tick = {
-                symbol: this.currentPair,
-                price: newPrice,
-                quantity: vol,
-                time: now
-            };
-
-            this.broadcastTickToPanes(this.currentPair, tick);
-            if (this.chart && this.chart.updateCurrentCandle) {
-                this.chart.updateCurrentCandle(tick, this.currentInterval);
+            const cleanSym = this.getCleanSymbol();
+            const q = this.indianQuotesMap && this.indianQuotesMap[cleanSym];
+            if (q && q.ltp > 0) {
+                const tick = {
+                    symbol: this.currentPair,
+                    price: parseFloat(q.ltp),
+                    quantity: q.volume || 100,
+                    time: Date.now()
+                };
+                this.broadcastTickToPanes(this.currentPair, tick);
+                if (this.chart && this.chart.updateCurrentCandle) {
+                    this.chart.updateCurrentCandle(tick, this.currentInterval);
+                }
             }
-        }, 1200);
+        }, 5000);
     }
 
     connectWebSocket() {

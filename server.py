@@ -18,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from coindcx_feed import CoinDCXFeed
 from order_manager import OrderManager
 from pine_engine import PineEngine
-from indian_market import indian_market
+from indian_market import indian_market, INDIAN_INDICES
 from kotak_client import kotak_client
 
 app = FastAPI(title="Open Chart - 3D Trading Terminal", version="2.0.0")
@@ -96,19 +96,27 @@ async def get_markets():
     """Return top CoinDCX USDT crypto pairs with 24h ticker metrics."""
     return feed.get_market_list()
 
-@app.get("/api/candles")
-async def get_candles(pair: str = "B-BTC_USDT", interval: str = "1h", limit: int = 150):
-    """Return historical OHLCV candlesticks for Crypto or Indian Markets."""
+def _is_indian_symbol(pair: str) -> bool:
     clean_sym = pair.replace("B-", "").replace("_USDT", "").replace("USDT", "").strip().upper()
     base_candidate = clean_sym.split()[0] if clean_sym else ""
-    if (clean_sym in indian_market.live_prices 
-        or base_candidate in indian_market.live_prices 
-        or "NIFTY" in clean_sym 
-        or "SENSEX" in clean_sym 
-        or "BANKEX" in clean_sym 
-        or clean_sym.endswith(" CE") 
-        or clean_sym.endswith(" PE")):
-        return indian_market.get_candles(clean_sym, interval, limit)
+    return (
+        clean_sym in indian_market.live_prices
+        or base_candidate in indian_market.live_prices
+        or "NIFTY" in clean_sym
+        or "SENSEX" in clean_sym
+        or "BANKEX" in clean_sym
+        or clean_sym.endswith(".NS")
+        or clean_sym.endswith(".BO")
+        or clean_sym.endswith(" CE")
+        or clean_sym.endswith(" PE")
+    )
+
+@app.get("/api/candles")
+async def get_candles(pair: str = "B-BTC_USDT", interval: str = "1h", limit: int = 150, exchange: Optional[str] = None):
+    """Return historical OHLCV candlesticks for Crypto or Indian Markets."""
+    clean_sym = pair.replace("B-", "").replace("_USDT", "").replace("USDT", "").strip().upper()
+    if _is_indian_symbol(pair):
+        return await asyncio.to_thread(indian_market.get_candles, clean_sym, interval, limit, exchange)
     candles = await asyncio.to_thread(feed.fetch_candles, pair, interval, limit)
     return candles
 
@@ -117,25 +125,37 @@ async def get_candles(pair: str = "B-BTC_USDT", interval: str = "1h", limit: int
 @app.get("/api/indian/indices")
 async def get_indian_indices():
     """Return live quotes for all Indian benchmark indices & NSE/BSE market session status."""
+    indices = await asyncio.to_thread(indian_market.get_indices_list)
     return {
-        "indices": indian_market.get_indices_list(),
+        "indices": indices,
+        "market_session": indian_market.is_market_open()
+    }
+
+@app.get("/api/indian/quotes")
+async def get_indian_quotes(force: bool = False):
+    """Return all live/closing NSE & BSE quotes (indices + equities)."""
+    await asyncio.to_thread(indian_market.refresh_live_quotes, force)
+    return {
+        "quotes": indian_market.live_quotes,
+        "live_prices": indian_market.live_prices,
         "market_session": indian_market.is_market_open()
     }
 
 @app.get("/api/indian/trending")
 async def get_indian_trending(filter: str = "all", limit: int = 30):
     """Return Indian market trending stocks with Top Up, Top Down, and Low Price High Vol filters."""
-    return indian_market.get_trending_stocks(filter_type=filter, limit=limit)
+    return await asyncio.to_thread(indian_market.get_trending_stocks, filter, limit)
 
 @app.get("/api/indian/optionchain/{symbol}")
-async def get_indian_optionchain(symbol: str, expiry: Optional[str] = None, count: int = 21):
+async def get_indian_optionchain(symbol: str, expiry: Optional[str] = None, count: int = 21, strikes: Optional[int] = None):
     """Return complete Black-Scholes Option Chain Matrix with Greeks, PCR, and Max Pain."""
-    return indian_market.get_option_chain(underlying=symbol, expiry=expiry, count=count)
+    num_strikes = strikes if strikes is not None else count
+    return await asyncio.to_thread(indian_market.get_option_chain, symbol, expiry, num_strikes)
 
 @app.get("/api/indian/candles")
-async def get_indian_candles(symbol: str = "NIFTY", interval: str = "1h", limit: int = 150):
+async def get_indian_candles(symbol: str = "NIFTY", interval: str = "1h", limit: int = 150, exchange: Optional[str] = None):
     """Return OHLCV candlesticks for an Indian index or equity."""
-    return indian_market.get_candles(underlying=symbol, interval=interval, limit=limit)
+    return await asyncio.to_thread(indian_market.get_candles, symbol, interval, limit, exchange)
 
 # --- Kotak Neo Trade API & Whitelisted Relay Endpoints ---
 
@@ -295,9 +315,8 @@ async def place_order(
             parts = clean_sym.split()
             if len(parts) >= 3 and parts[-1] in ["CE", "PE"]:
                 from greeks import calculate_greeks
-                cfg = indian_market.INDIAN_INDICES.get(parts[0])
-                spot_val = cfg["default_spot"] if cfg else 1000.0
-                g = calculate_greeks(spot=spot_val, strike=float(parts[1]), dte=4, iv=0.15, option_type=parts[2])
+                spot_val = indian_market.live_prices.get(parts[0]) or INDIAN_INDICES.get(parts[0], {}).get("default_spot", 1000.0)
+                g = calculate_greeks(spot=spot_val, strike=float(parts[1]), days_to_expiry=4, iv=0.15, option_type=parts[2])
                 cur_p = g["price"]
     else:
         cur_p = feed.live_prices.get(symbol) or feed.live_prices.get(f"B-{symbol}") or price
@@ -322,7 +341,8 @@ async def cancel_order(order_id: str):
 
 @app.post("/api/positions/{pos_id}/close")
 async def close_position(pos_id: str, symbol: str = Body(...)):
-    cur_p = feed.live_prices.get(symbol) or 0.0
+    clean_sym = symbol.replace("B-", "").replace("_USDT", "").replace("USDT", "").strip().upper()
+    cur_p = indian_market.live_prices.get(clean_sym) or feed.live_prices.get(symbol) or 0.0
     rec = order_manager.close_position_manual(pos_id, cur_p)
     return {"status": "success", "record": rec, "portfolio": order_manager.get_summary()}
 
@@ -338,7 +358,11 @@ async def execute_pine_script(
     code: str = Body(...)
 ):
     """Compile & run Pine Script on pair's candles, returning plots, signals and backtest."""
-    candles = await asyncio.to_thread(feed.fetch_candles, pair, interval, 200)
+    if _is_indian_symbol(pair):
+        clean_sym = pair.replace("B-", "").replace("_USDT", "").replace("USDT", "").strip().upper()
+        candles = await asyncio.to_thread(indian_market.get_candles, clean_sym, interval, 200)
+    else:
+        candles = await asyncio.to_thread(feed.fetch_candles, pair, interval, 200)
     result = PineEngine.execute_script(code, candles)
     return result
 
