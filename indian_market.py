@@ -11,6 +11,7 @@ import random
 import threading
 import urllib.request
 import urllib.parse
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List, Optional
 
@@ -19,7 +20,7 @@ from greeks import calculate_greeks
 # IST Timezone (+05:30)
 IST = timezone(timedelta(hours=5, minutes=30))
 
-# Master Indian Benchmark Indices Specifications
+# Master Indian Benchmark Indices Specifications (Live NSE & BSE Baselines)
 INDIAN_INDICES = {
     "NIFTY": {
         "symbol": "NIFTY",
@@ -28,8 +29,8 @@ INDIAN_INDICES = {
         "exchange_segment": "nse_fo",
         "lot_size": 25,
         "strike_step": 50,
-        "default_spot": 25646.30,
-        "prev_close": 25580.00,
+        "default_spot": 25607.20,
+        "prev_close": 25819.20,
         "yahoo_ticker": "^NSEI",
         "weekly_expiry_day": 3,  # Thursday
         "description": "NSE Flagship 50 Bluechip Index"
@@ -41,8 +42,8 @@ INDIAN_INDICES = {
         "exchange_segment": "nse_fo",
         "lot_size": 15,
         "strike_step": 100,
-        "default_spot": 63533.65,
-        "prev_close": 63250.00,
+        "default_spot": 63040.90,
+        "prev_close": 63703.20,
         "yahoo_ticker": "^NSEBANK",
         "weekly_expiry_day": 2,  # Wednesday
         "description": "NSE Banking Sector Benchmark"
@@ -54,8 +55,8 @@ INDIAN_INDICES = {
         "exchange_segment": "nse_fo",
         "lot_size": 25,
         "strike_step": 50,
-        "default_spot": 28545.75,
-        "prev_close": 28450.00,
+        "default_spot": 28337.15,
+        "prev_close": 28764.90,
         "yahoo_ticker": "NIFTY_FIN_SERVICE.NS",
         "weekly_expiry_day": 1,  # Tuesday
         "description": "NSE Financial Services Sector"
@@ -67,8 +68,8 @@ INDIAN_INDICES = {
         "exchange_segment": "nse_fo",
         "lot_size": 50,
         "strike_step": 25,
-        "default_spot": 14283.30,
-        "prev_close": 14210.00,
+        "default_spot": 14360.25,
+        "prev_close": 14340.60,
         "yahoo_ticker": "NIFTY_MID_SELECT.NS",
         "weekly_expiry_day": 0,  # Monday
         "description": "NSE Midcap Select Index"
@@ -80,8 +81,8 @@ INDIAN_INDICES = {
         "exchange_segment": "bse_fo",
         "lot_size": 10,
         "strike_step": 100,
-        "default_spot": 83479.12,
-        "prev_close": 83200.00,
+        "default_spot": 83339.26,
+        "prev_close": 83938.30,
         "yahoo_ticker": "^BSESN",
         "weekly_expiry_day": 4,  # Friday
         "description": "BSE 30 Premier Benchmark"
@@ -93,8 +94,8 @@ INDIAN_INDICES = {
         "exchange_segment": "bse_fo",
         "lot_size": 15,
         "strike_step": 100,
-        "default_spot": 71465.41,
-        "prev_close": 72696.05,
+        "default_spot": 71023.49,
+        "prev_close": 71634.68,
         "yahoo_ticker": "BSE-BANK.BO",
         "weekly_expiry_day": 0,  # Monday
         "description": "BSE Banking Sector Index"
@@ -106,94 +107,188 @@ INDIAN_INDICES = {
         "exchange_segment": "nse_cm",
         "lot_size": 1,
         "strike_step": 0.5,
-        "default_spot": 18.38,
-        "prev_close": 17.90,
+        "default_spot": 16.55,
+        "prev_close": 17.67,
         "yahoo_ticker": "^INDIAVIX",
         "weekly_expiry_day": 3,
         "description": "NSE Volatility Fear Gauge"
     }
 }
 
-# Master List of Indian Equities (including High-Volume & Low-Price Breakouts)
+# Master List of Indian Equities (Verified Live NSE/BSE Tickers & Real Price Baselines)
 INDIAN_EQUITIES = [
     # Top Bluechip Large Caps
-    {"symbol": "RELIANCE", "name": "Reliance Industries Ltd", "exchange": "NSE", "price": 1365.90, "change_pct": 0.45, "volume": 12840000, "lot_size": 500, "strike_step": 20, "sector": "Energy & Conglomerate"},
-    {"symbol": "TCS", "name": "Tata Consultancy Services", "exchange": "NSE", "price": 2464.00, "change_pct": 2.38, "volume": 3150000, "lot_size": 175, "strike_step": 50, "sector": "IT & Software"},
-    {"symbol": "HDFCBANK", "name": "HDFC Bank Ltd", "exchange": "NSE", "price": 833.95, "change_pct": 2.33, "volume": 18200000, "lot_size": 550, "strike_step": 10, "sector": "Banking & Finance"},
-    {"symbol": "INFY", "name": "Infosys Ltd", "exchange": "NSE", "price": 1124.00, "change_pct": -0.53, "volume": 9450000, "lot_size": 400, "strike_step": 20, "sector": "IT & Software"},
-    {"symbol": "ICICIBANK", "name": "ICICI Bank Ltd", "exchange": "NSE", "price": 1617.70, "change_pct": 1.19, "volume": 11780000, "lot_size": 700, "strike_step": 10, "sector": "Banking & Finance"},
-    {"symbol": "TATAMOTORS", "name": "Tata Motors Ltd", "exchange": "NSE", "price": 785.00, "change_pct": 1.85, "volume": 16500000, "lot_size": 700, "strike_step": 10, "sector": "Automotive"},
-    {"symbol": "SBIN", "name": "State Bank of India", "exchange": "NSE", "price": 1151.50, "change_pct": 3.87, "volume": 19300000, "lot_size": 750, "strike_step": 10, "sector": "Banking & Finance"},
-    {"symbol": "BHARTIARTL", "name": "Bharti Airtel Ltd", "exchange": "NSE", "price": 2140.20, "change_pct": 0.10, "volume": 5900000, "lot_size": 475, "strike_step": 20, "sector": "Telecom"},
-    {"symbol": "ITC", "name": "ITC Ltd", "exchange": "NSE", "price": 299.40, "change_pct": 2.08, "volume": 14200000, "lot_size": 1600, "strike_step": 5, "sector": "FMCG"},
-    {"symbol": "LT", "name": "Larsen & Toubro Ltd", "exchange": "NSE", "price": 4171.30, "change_pct": 0.38, "volume": 3200000, "lot_size": 150, "strike_step": 50, "sector": "Infrastructure"},
-    {"symbol": "BAJFINANCE", "name": "Bajaj Finance Ltd", "exchange": "NSE", "price": 1110.90, "change_pct": -0.91, "volume": 2850000, "lot_size": 125, "strike_step": 20, "sector": "Finance"},
-    {"symbol": "MARUTI", "name": "Maruti Suzuki India", "exchange": "NSE", "price": 14241.00, "change_pct": 12.80, "volume": 950000, "lot_size": 50, "strike_step": 100, "sector": "Automotive"},
+    {"symbol": "RELIANCE", "name": "Reliance Industries Ltd", "exchange": "NSE", "yahoo_ticker": "RELIANCE.NS", "bse_ticker": "RELIANCE.BO", "price": 1382.60, "prev_close": 1396.20, "change_pct": -0.97, "volume": 12170985, "lot_size": 500, "strike_step": 20, "sector": "Energy & Conglomerate"},
+    {"symbol": "TCS", "name": "Tata Consultancy Services", "exchange": "NSE", "yahoo_ticker": "TCS.NS", "bse_ticker": "TCS.BO", "price": 2572.50, "prev_close": 2640.30, "change_pct": -2.57, "volume": 3271968, "lot_size": 175, "strike_step": 50, "sector": "IT & Software"},
+    {"symbol": "HDFCBANK", "name": "HDFC Bank Ltd", "exchange": "NSE", "yahoo_ticker": "HDFCBANK.NS", "bse_ticker": "HDFCBANK.BO", "price": 857.25, "prev_close": 862.00, "change_pct": -0.55, "volume": 32944475, "lot_size": 550, "strike_step": 10, "sector": "Banking & Finance"},
+    {"symbol": "INFY", "name": "Infosys Ltd", "exchange": "NSE", "yahoo_ticker": "INFY.NS", "bse_ticker": "INFY.BO", "price": 1151.30, "prev_close": 1183.00, "change_pct": -2.68, "volume": 10012843, "lot_size": 400, "strike_step": 20, "sector": "IT & Software"},
+    {"symbol": "ICICIBANK", "name": "ICICI Bank Ltd", "exchange": "NSE", "yahoo_ticker": "ICICIBANK.NS", "bse_ticker": "ICICIBANK.BO", "price": 1593.40, "prev_close": 1611.00, "change_pct": -1.09, "volume": 8936852, "lot_size": 700, "strike_step": 10, "sector": "Banking & Finance"},
+    {"symbol": "TATAMOTORS", "name": "Tata Motors Passenger Vehicles", "exchange": "NSE", "yahoo_ticker": "TMPV.NS", "bse_ticker": "TMPV.BO", "price": 258.00, "prev_close": 262.00, "change_pct": -1.53, "volume": 7570858, "lot_size": 700, "strike_step": 10, "sector": "Automotive"},
+    {"symbol": "SBIN", "name": "State Bank of India", "exchange": "NSE", "yahoo_ticker": "SBIN.NS", "bse_ticker": "SBIN.BO", "price": 1123.90, "prev_close": 1136.65, "change_pct": -1.12, "volume": 7994315, "lot_size": 750, "strike_step": 10, "sector": "Banking & Finance"},
+    {"symbol": "BHARTIARTL", "name": "Bharti Airtel Ltd", "exchange": "NSE", "yahoo_ticker": "BHARTIARTL.NS", "bse_ticker": "BHARTIARTL.BO", "price": 2067.90, "prev_close": 2102.50, "change_pct": -1.65, "volume": 3626541, "lot_size": 475, "strike_step": 20, "sector": "Telecom"},
+    {"symbol": "ITC", "name": "ITC Ltd", "exchange": "NSE", "yahoo_ticker": "ITC.NS", "bse_ticker": "ITC.BO", "price": 304.70, "prev_close": 307.00, "change_pct": -0.75, "volume": 12534210, "lot_size": 1600, "strike_step": 5, "sector": "FMCG"},
+    {"symbol": "LT", "name": "Larsen & Toubro Ltd", "exchange": "NSE", "yahoo_ticker": "LT.NS", "bse_ticker": "LT.BO", "price": 4108.50, "prev_close": 4132.10, "change_pct": -0.57, "volume": 997930, "lot_size": 150, "strike_step": 50, "sector": "Infrastructure"},
+    {"symbol": "BAJFINANCE", "name": "Bajaj Finance Ltd", "exchange": "NSE", "yahoo_ticker": "BAJFINANCE.NS", "bse_ticker": "BAJFINANCE.BO", "price": 1080.00, "prev_close": 1097.85, "change_pct": -1.63, "volume": 6876207, "lot_size": 125, "strike_step": 20, "sector": "Finance"},
+    {"symbol": "MARUTI", "name": "Maruti Suzuki India", "exchange": "NSE", "yahoo_ticker": "MARUTI.NS", "bse_ticker": "MARUTI.BO", "price": 13765.00, "prev_close": 14015.00, "change_pct": -1.78, "volume": 392631, "lot_size": 50, "strike_step": 100, "sector": "Automotive"},
 
     # High-Volume & Low-Price Breakouts (Penny & Momentum Stars)
-    {"symbol": "SUZLON", "name": "Suzlon Energy Ltd", "exchange": "NSE", "price": 36.90, "change_pct": -0.78, "volume": 142000000, "lot_size": 5000, "strike_step": 1, "sector": "Renewable Energy"},
-    {"symbol": "IDEA", "name": "Vodafone Idea Ltd", "exchange": "NSE", "price": 12.06, "change_pct": -1.95, "volume": 285000000, "lot_size": 10000, "strike_step": 0.5, "sector": "Telecom"},
-    {"symbol": "YESBANK", "name": "Yes Bank Ltd", "exchange": "NSE", "price": 17.99, "change_pct": 0.78, "volume": 89000000, "lot_size": 10000, "strike_step": 0.5, "sector": "Banking & Finance"},
-    {"symbol": "TATASTEEL", "name": "Tata Steel Ltd", "exchange": "NSE", "price": 168.36, "change_pct": -7.24, "volume": 62000000, "lot_size": 5500, "strike_step": 2.5, "sector": "Metals & Mining"},
-    {"symbol": "IRFC", "name": "Indian Railway Finance Corp", "exchange": "NSE", "price": 82.75, "change_pct": 0.12, "volume": 38000000, "lot_size": 2500, "strike_step": 2, "sector": "Railway Finance"},
-    {"symbol": "RVNL", "name": "Rail Vikas Nigam Ltd", "exchange": "NSE", "price": 190.49, "change_pct": -2.56, "volume": 29000000, "lot_size": 1200, "strike_step": 5, "sector": "Railways Infra"},
-    {"symbol": "ZOMATO", "name": "Zomato Ltd", "exchange": "NSE", "price": 260.00, "change_pct": 3.15, "volume": 31000000, "lot_size": 2000, "strike_step": 5, "sector": "Consumer Internet"},
-    {"symbol": "PNB", "name": "Punjab National Bank", "exchange": "NSE", "price": 102.50, "change_pct": -1.40, "volume": 48000000, "lot_size": 8000, "strike_step": 2, "sector": "Banking"},
-    {"symbol": "NHPC", "name": "NHPC Ltd", "exchange": "NSE", "price": 84.20, "change_pct": 1.10, "volume": 34000000, "lot_size": 6000, "strike_step": 2, "sector": "Power Generation"},
-    {"symbol": "IOC", "name": "Indian Oil Corporation", "exchange": "NSE", "price": 142.10, "change_pct": -0.80, "volume": 24000000, "lot_size": 4875, "strike_step": 2.5, "sector": "Oil & Gas"},
-    {"symbol": "GMRINFRA", "name": "GMR Airports Infra Ltd", "exchange": "NSE", "price": 83.25, "change_pct": 3.25, "volume": 27000000, "lot_size": 6000, "strike_step": 2, "sector": "Airports & Infra"},
-    {"symbol": "BHEL", "name": "Bharat Heavy Electricals Ltd", "exchange": "NSE", "price": 234.60, "change_pct": 4.60, "volume": 22000000, "lot_size": 2625, "strike_step": 5, "sector": "Heavy Engineering"},
-    {"symbol": "SAIL", "name": "Steel Authority of India", "exchange": "NSE", "price": 121.50, "change_pct": -1.40, "volume": 21000000, "lot_size": 4750, "strike_step": 2.5, "sector": "Metals"},
-    {"symbol": "IDFCFIRSTB", "name": "IDFC First Bank Ltd", "exchange": "NSE", "price": 68.70, "change_pct": 0.80, "volume": 36000000, "lot_size": 7500, "strike_step": 1, "sector": "Banking"}
+    {"symbol": "SUZLON", "name": "Suzlon Energy Ltd", "exchange": "NSE", "yahoo_ticker": "SUZLON.NS", "bse_ticker": "SUZLON.BO", "price": 36.38, "prev_close": 36.29, "change_pct": 0.25, "volume": 35768475, "lot_size": 5000, "strike_step": 1, "sector": "Renewable Energy"},
+    {"symbol": "IDEA", "name": "Vodafone Idea Ltd", "exchange": "NSE", "yahoo_ticker": "IDEA.NS", "bse_ticker": "IDEA.BO", "price": 11.55, "prev_close": 11.60, "change_pct": -0.43, "volume": 166437180, "lot_size": 10000, "strike_step": 0.5, "sector": "Telecom"},
+    {"symbol": "YESBANK", "name": "Yes Bank Ltd", "exchange": "NSE", "yahoo_ticker": "YESBANK.NS", "bse_ticker": "YESBANK.BO", "price": 17.80, "prev_close": 17.68, "change_pct": 0.68, "volume": 108994949, "lot_size": 10000, "strike_step": 0.5, "sector": "Banking & Finance"},
+    {"symbol": "TATASTEEL", "name": "Tata Steel Ltd", "exchange": "NSE", "yahoo_ticker": "TATASTEEL.NS", "bse_ticker": "TATASTEEL.BO", "price": 163.94, "prev_close": 163.54, "change_pct": 0.24, "volume": 43790447, "lot_size": 5500, "strike_step": 2.5, "sector": "Metals & Mining"},
+    {"symbol": "IRFC", "name": "Indian Railway Finance Corp", "exchange": "NSE", "yahoo_ticker": "IRFC.NS", "bse_ticker": "IRFC.BO", "price": 82.25, "prev_close": 82.30, "change_pct": -0.06, "volume": 11322621, "lot_size": 2500, "strike_step": 2, "sector": "Railway Finance"},
+    {"symbol": "RVNL", "name": "Rail Vikas Nigam Ltd", "exchange": "NSE", "yahoo_ticker": "RVNL.NS", "bse_ticker": "RVNL.BO", "price": 190.70, "prev_close": 187.14, "change_pct": 1.90, "volume": 8810296, "lot_size": 1200, "strike_step": 5, "sector": "Railways Infra"},
+    {"symbol": "ZOMATO", "name": "Eternal (Zomato) Ltd", "exchange": "NSE", "yahoo_ticker": "ETERNAL.NS", "bse_ticker": "ETERNAL.BO", "price": 363.00, "prev_close": 367.70, "change_pct": -1.28, "volume": 18957580, "lot_size": 2000, "strike_step": 5, "sector": "Consumer Internet"},
+    {"symbol": "PNB", "name": "Punjab National Bank", "exchange": "NSE", "yahoo_ticker": "PNB.NS", "bse_ticker": "PNB.BO", "price": 146.50, "prev_close": 147.50, "change_pct": -0.68, "volume": 23598220, "lot_size": 8000, "strike_step": 2, "sector": "Banking"},
+    {"symbol": "NHPC", "name": "NHPC Ltd", "exchange": "NSE", "yahoo_ticker": "NHPC.NS", "bse_ticker": "NHPC.BO", "price": 75.65, "prev_close": 75.90, "change_pct": -0.33, "volume": 4170524, "lot_size": 6000, "strike_step": 2, "sector": "Power Generation"},
+    {"symbol": "IOC", "name": "Indian Oil Corporation", "exchange": "NSE", "yahoo_ticker": "IOC.NS", "bse_ticker": "IOC.BO", "price": 144.21, "prev_close": 144.42, "change_pct": -0.15, "volume": 7046453, "lot_size": 4875, "strike_step": 2.5, "sector": "Oil & Gas"},
+    {"symbol": "GMRINFRA", "name": "GMR Airports Ltd", "exchange": "NSE", "yahoo_ticker": "GMRAIRPORT.NS", "bse_ticker": "GMRAIRPORT.BO", "price": 99.26, "prev_close": 101.20, "change_pct": -1.92, "volume": 12007582, "lot_size": 6000, "strike_step": 2, "sector": "Airports & Infra"},
+    {"symbol": "BHEL", "name": "Bharat Heavy Electricals Ltd", "exchange": "NSE", "yahoo_ticker": "BHEL.NS", "bse_ticker": "BHEL.BO", "price": 421.95, "prev_close": 418.95, "change_pct": 0.72, "volume": 6427022, "lot_size": 2625, "strike_step": 5, "sector": "Heavy Engineering"},
+    {"symbol": "SAIL", "name": "Steel Authority of India", "exchange": "NSE", "yahoo_ticker": "SAIL.NS", "bse_ticker": "SAIL.BO", "price": 163.95, "prev_close": 160.96, "change_pct": 1.86, "volume": 12386182, "lot_size": 4750, "strike_step": 2.5, "sector": "Metals"},
+    {"symbol": "IDFCFIRSTB", "name": "IDFC First Bank Ltd", "exchange": "NSE", "yahoo_ticker": "IDFCFIRSTB.NS", "bse_ticker": "IDFCFIRSTB.BO", "price": 86.80, "prev_close": 86.71, "change_pct": 0.10, "volume": 23658413, "lot_size": 7500, "strike_step": 1, "sector": "Banking"}
 ]
 
 class IndianMarketManager:
-    """Manager for Indian Indices, Options Chains, and Trending Screener."""
+    """Manager for Indian Indices, Equities, Options Chains, and Trending Screener."""
 
     def __init__(self):
         self.live_prices = {}
+        self.live_quotes = {}
         for k, v in INDIAN_INDICES.items():
             self.live_prices[k] = v["default_spot"]
+            chg = round(v["default_spot"] - v["prev_close"], 2)
+            pct = round((chg / v["prev_close"]) * 100, 2) if v["prev_close"] else 0.0
+            self.live_quotes[k] = {
+                "ltp": v["default_spot"],
+                "prev_close": v["prev_close"],
+                "change": chg,
+                "change_pct": pct,
+                "high": v["default_spot"],
+                "low": v["default_spot"],
+                "volume": 0
+            }
         for eq in INDIAN_EQUITIES:
             self.live_prices[eq["symbol"]] = eq["price"]
+            prev = eq.get("prev_close", eq["price"])
+            chg = round(eq["price"] - prev, 2)
+            self.live_quotes[eq["symbol"]] = {
+                "ltp": eq["price"],
+                "prev_close": prev,
+                "change": chg,
+                "change_pct": eq["change_pct"],
+                "high": eq["price"],
+                "low": eq["price"],
+                "volume": eq["volume"]
+            }
 
         self.candle_cache = {}
         self._last_quote_fetch = 0.0
+        self._quote_lock = threading.Lock()
 
-        # Start non-blocking initial live quotes fetch
-        threading.Thread(target=self.refresh_live_quotes, daemon=True).start()
+        # Start non-blocking initial live quotes fetch for both indices & equities
+        threading.Thread(target=self.refresh_live_quotes, kwargs={"force": True}, daemon=True).start()
 
-    def refresh_live_quotes(self) -> Dict[str, Any]:
+    def _resolve_yahoo_ticker(self, sym: str, exchange: Optional[str] = None) -> str:
+        clean = sym.upper().strip()
+        if clean in INDIAN_INDICES:
+            return INDIAN_INDICES[clean]["yahoo_ticker"]
+        eq = next((e for e in INDIAN_EQUITIES if e["symbol"] == clean), None)
+        if eq:
+            if exchange and exchange.upper() == "BSE":
+                return eq.get("bse_ticker") or f"{clean}.BO"
+            return eq.get("yahoo_ticker") or f"{clean}.NS"
+        if clean.endswith(".NS") or clean.endswith(".BO") or clean.startswith("^"):
+            return clean
+        if exchange and exchange.upper() == "BSE":
+            return f"{clean}.BO"
+        return f"{clean}.NS"
+
+    def refresh_live_quotes(self, force: bool = False) -> Dict[str, Any]:
         """
-        Fetches live market quotes for benchmark Indian indices from Yahoo Finance.
-        Updates self.live_prices dynamically with real exchange spot levels (e.g. SENSEX near 83,400+).
+        Fetches authentic live/closing quotes for ALL NSE/BSE benchmark indices and equities
+        from Yahoo Finance using `?interval=1m&range=1d` (for exact previousClose & day high/low/vol).
         """
         now = time.time()
-        if (now - getattr(self, "_last_quote_fetch", 0)) < 15:
+        market_open = self.is_market_open().get("is_open", False)
+        ttl = 5.0 if market_open else 60.0
+
+        if not force and (now - self._last_quote_fetch) < ttl:
             return {"status": "cached", "live_prices": self.live_prices}
 
-        self._last_quote_fetch = now
-        updated = {}
-        for sym, cfg in INDIAN_INDICES.items():
-            tk = cfg.get("yahoo_ticker")
-            if not tk:
-                continue
-            try:
-                url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(tk)}?interval=1d&range=5d"
-                req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
-                with urllib.request.urlopen(req, timeout=3.0) as r:
-                    data = json.loads(r.read())
-                    meta = data["chart"]["result"][0]["meta"]
+        with self._quote_lock:
+            now = time.time()
+            if not force and (now - self._last_quote_fetch) < ttl:
+                return {"status": "cached", "live_prices": self.live_prices}
+
+            self._last_quote_fetch = now
+            targets = []
+            for sym, cfg in INDIAN_INDICES.items():
+                if cfg.get("yahoo_ticker"):
+                    targets.append(("idx", sym, cfg["yahoo_ticker"], cfg))
+            for eq in INDIAN_EQUITIES:
+                tk = eq.get("yahoo_ticker") or f"{eq['symbol']}.NS"
+                targets.append(("eq", eq["symbol"], tk, eq))
+
+            def _fetch_one(item):
+                kind, sym, tk, ref = item
+                try:
+                    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(tk)}?interval=1m&range=1d"
+                    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+                    with urllib.request.urlopen(req, timeout=3.5) as r:
+                        data = json.loads(r.read().decode("utf-8"))
+                    res = data.get("chart", {}).get("result", [])
+                    if not res:
+                        return None
+                    meta = res[0].get("meta", {})
                     price = meta.get("regularMarketPrice")
-                    if price and price > 0:
-                        self.live_prices[sym] = round(float(price), 2)
-                        updated[sym] = self.live_prices[sym]
-                        prev = meta.get("chartPreviousClose") or meta.get("previousClose")
-                        if prev:
-                            cfg["prev_close"] = round(float(prev), 2)
+                    if not price or float(price) <= 0:
+                        return None
+                    ltp = round(float(price), 2)
+                    prev = meta.get("previousClose") or meta.get("chartPreviousClose")
+                    prev_close = round(float(prev), 2) if (prev and float(prev) > 0) else ref.get("prev_close", ltp)
+                    day_high = round(float(meta.get("regularMarketDayHigh") or ltp), 2)
+                    day_low = round(float(meta.get("regularMarketDayLow") or ltp), 2)
+                    vol = int(meta.get("regularMarketVolume") or ref.get("volume", 0) or 0)
+                    chg = round(ltp - prev_close, 2)
+                    pct = round((chg / prev_close) * 100.0, 2) if prev_close else 0.0
+                    return (kind, sym, ltp, prev_close, chg, pct, day_high, day_low, vol)
+                except Exception:
+                    return None
+
+            updated = {}
+            try:
+                with ThreadPoolExecutor(max_workers=12) as executor:
+                    for res in executor.map(_fetch_one, targets):
+                        if not res:
+                            continue
+                        kind, sym, ltp, prev_close, chg, pct, day_high, day_low, vol = res
+                        self.live_prices[sym] = ltp
+                        self.live_quotes[sym] = {
+                            "ltp": ltp,
+                            "prev_close": prev_close,
+                            "change": chg,
+                            "change_pct": pct,
+                            "high": day_high,
+                            "low": day_low,
+                            "volume": vol
+                        }
+                        updated[sym] = ltp
+                        if kind == "idx" and sym in INDIAN_INDICES:
+                            INDIAN_INDICES[sym]["default_spot"] = ltp
+                            INDIAN_INDICES[sym]["prev_close"] = prev_close
+                        elif kind == "eq":
+                            for eq in INDIAN_EQUITIES:
+                                if eq["symbol"] == sym:
+                                    eq["price"] = ltp
+                                    eq["prev_close"] = prev_close
+                                    eq["change_pct"] = pct
+                                    if vol > 0:
+                                        eq["volume"] = vol
+                                    break
             except Exception:
                 pass
-        return {"status": "success", "updated": updated, "live_prices": self.live_prices}
+
+            return {"status": "success", "updated": updated, "live_prices": self.live_prices}
 
     def is_market_open(self) -> Dict[str, Any]:
         """Check whether NSE/BSE active trading session is currently open (09:15 - 15:30 IST)."""
@@ -217,20 +312,26 @@ class IndianMarketManager:
 
     def get_indices_list(self) -> List[Dict[str, Any]]:
         """Returns live quotes for all benchmark Indian indices."""
+        self.refresh_live_quotes()
         res = []
         for sym, cfg in INDIAN_INDICES.items():
+            q = self.live_quotes.get(sym, {})
             spot = self.live_prices.get(sym, cfg["default_spot"])
-            prev = cfg["prev_close"]
-            chg = spot - prev
-            pct = (chg / prev) * 100 if prev else 0.0
+            prev = q.get("prev_close", cfg["prev_close"])
+            chg = round(spot - prev, 2)
+            pct = round((chg / prev) * 100, 2) if prev else 0.0
 
             res.append({
                 "symbol": sym,
                 "name": cfg["display_name"],
                 "exchange": cfg["exchange"],
                 "last_price": round(spot, 2),
-                "change": round(chg, 2),
-                "change_pct": round(pct, 2),
+                "prev_close": round(prev, 2),
+                "change": chg,
+                "change_pct": pct,
+                "high": q.get("high", round(spot, 2)),
+                "low": q.get("low", round(spot, 2)),
+                "volume": q.get("volume", 0),
                 "lot_size": cfg["lot_size"],
                 "strike_step": cfg["strike_step"],
                 "description": cfg["description"]
@@ -242,31 +343,36 @@ class IndianMarketManager:
         Advanced Trending Screener for Indian Market:
         - top_gainers: Sorted descending by % change (Top Up)
         - top_losers: Sorted ascending by % change (Top Down)
-        - low_price_high_vol: Stocks priced < ₹250 with heavy volume
+        - low_price_high_vol: Stocks priced <= ₹250 with heavy volume
         - indices: Indian benchmark indices
         - all: Unified sorted list
         """
+        self.refresh_live_quotes()
         all_items = []
         for eq in INDIAN_EQUITIES:
-            p = self.live_prices.get(eq["symbol"], eq["price"])
-            chg_pct = eq.get("change_pct", 0.0)
-            chg_val = round(p * (chg_pct / 100), 2)
-            vol = eq.get("volume", 1000000)
+            sym = eq["symbol"]
+            q = self.live_quotes.get(sym, {})
+            p = self.live_prices.get(sym, eq["price"])
+            prev = q.get("prev_close", eq.get("prev_close", p))
+            chg_val = round(p - prev, 2) if prev else round(p * (eq.get("change_pct", 0.0) / 100.0), 2)
+            chg_pct = round((chg_val / prev) * 100.0, 2) if prev else eq.get("change_pct", 0.0)
+            vol = q.get("volume") or eq.get("volume", 1000000)
 
             # Categorize tags
             tags = []
-            if chg_pct >= 2.5:
+            if chg_pct >= 1.5:
                 tags.append("TOP UP")
             elif chg_pct <= -1.5:
                 tags.append("TOP DOWN")
-            if p <= 250 and vol >= 15000000:
+            if p <= 250 and vol >= 10000000:
                 tags.append("LOW PRICE HIGH VOL")
 
             all_items.append({
-                "symbol": eq["symbol"],
+                "symbol": sym,
                 "name": eq["name"],
                 "exchange": eq["exchange"],
                 "price": round(p, 2),
+                "prev_close": round(prev, 2),
                 "change": chg_val,
                 "change_pct": chg_pct,
                 "volume": vol,
@@ -284,9 +390,10 @@ class IndianMarketManager:
                 "name": idx["name"],
                 "exchange": idx["exchange"],
                 "price": idx["last_price"],
+                "prev_close": idx.get("prev_close", idx["last_price"]),
                 "change": idx["change"],
                 "change_pct": idx["change_pct"],
-                "volume": 85000000,
+                "volume": idx.get("volume") or 85000000,
                 "lot_size": idx["lot_size"],
                 "strike_step": idx["strike_step"],
                 "sector": "Benchmark Index",
@@ -297,9 +404,11 @@ class IndianMarketManager:
         # Filter logic
         ft = filter_type.lower()
         if ft in ["top_gainers", "top_up", "gainers"]:
-            filtered = sorted([x for x in all_items if x["change_pct"] > 0], key=lambda x: x["change_pct"], reverse=True)
+            gainers = [x for x in all_items if x["change_pct"] > 0]
+            filtered = sorted(gainers if gainers else all_items, key=lambda x: x["change_pct"], reverse=True)
         elif ft in ["top_losers", "top_down", "losers"]:
-            filtered = sorted([x for x in all_items if x["change_pct"] < 0], key=lambda x: x["change_pct"])
+            losers = [x for x in all_items if x["change_pct"] < 0]
+            filtered = sorted(losers if losers else all_items, key=lambda x: x["change_pct"])
         elif ft in ["low_price_high_vol", "penny_vol", "low_price"]:
             filtered = sorted([x for x in all_items if x["price"] <= 250 and not x["is_index"]], key=lambda x: x["volume"], reverse=True)
         elif ft in ["indices", "index"]:
@@ -342,6 +451,7 @@ class IndianMarketManager:
         Generates complete institutional Black-Scholes Option Chain Matrix
         with Delta, Gamma, Theta, Vega, IV, Open Interest, PCR, and Max Pain.
         """
+        self.refresh_live_quotes()
         sym = underlying.upper().replace("B-", "").replace("_USDT", "").replace("USDT", "")
         cfg = INDIAN_INDICES.get(sym)
 
@@ -349,14 +459,15 @@ class IndianMarketManager:
         if not cfg:
             eq = next((e for e in INDIAN_EQUITIES if e["symbol"] == sym), None)
             if eq:
+                cur_p = self.live_prices.get(sym, eq["price"])
                 cfg = {
                     "symbol": eq["symbol"],
                     "display_name": eq["name"],
                     "exchange": eq["exchange"],
                     "lot_size": eq["lot_size"],
                     "strike_step": eq["strike_step"],
-                    "default_spot": eq["price"],
-                    "prev_close": eq["price"] * (1 - eq["change_pct"]/100.0)
+                    "default_spot": cur_p,
+                    "prev_close": eq.get("prev_close") or (cur_p * (1 - eq["change_pct"]/100.0))
                 }
             else:
                 cfg = INDIAN_INDICES["NIFTY"]
@@ -519,33 +630,166 @@ class IndianMarketManager:
             "strikes": chain_matrix
         }
 
-    def get_candles(self, underlying: str = "NIFTY", interval: str = "1h", limit: int = 150) -> List[Dict[str, Any]]:
+    def _fetch_real_yahoo_candles(self, sym: str, interval: str = "1h", limit: int = 160, exchange: Optional[str] = None) -> Optional[List[Dict[str, Any]]]:
         """
-        Instant Candlestick retrieval with realistic price continuity.
-        Walks backward from known live/spot base price with timeframe-scaled volatility,
-        completely eliminating artificial 'big green' jumps on the final candle.
+        Fetches authentic historical & live OHLCV candlesticks from Yahoo Finance
+        for NSE (.NS / ^NSEI / ^NSEBANK) and BSE (.BO / ^BSESN / BSE-BANK.BO).
+        Returns timestamps in milliseconds aligned to OpenChart3D.
         """
-        sym = underlying.upper().replace("B-", "").replace("_USDT", "").replace("USDT", "")
-        # Check if underlying is an option contract like "NIFTY 24200 CE" or "BANKNIFTY 51800 PE"
+        ticker = self._resolve_yahoo_ticker(sym, exchange=exchange)
+        tf = interval.lower().strip()
+        if tf == "1m":
+            yf_iv, yf_rng = "1m", "1d"
+        elif tf == "5m":
+            yf_iv, yf_rng = "5m", "5d"
+        elif tf == "15m":
+            yf_iv, yf_rng = "15m", "5d"
+        elif tf == "1h":
+            yf_iv, yf_rng = "60m", "1mo"
+        elif tf == "4h":
+            yf_iv, yf_rng = "60m", "3mo"
+        elif tf == "1d":
+            yf_iv, yf_rng = "1d", "1y"
+        else:
+            yf_iv, yf_rng = "60m", "1mo"
+
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(ticker)}?interval={yf_iv}&range={yf_rng}"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+            with urllib.request.urlopen(req, timeout=4.5) as r:
+                data = json.loads(r.read().decode("utf-8"))
+            result = data.get("chart", {}).get("result", [])
+            if not result:
+                return None
+            res = result[0]
+            meta = res.get("meta", {})
+            reg_price = meta.get("regularMarketPrice")
+            if reg_price and float(reg_price) > 0:
+                ltp = round(float(reg_price), 2)
+                self.live_prices[sym] = ltp
+                if sym in self.live_quotes:
+                    self.live_quotes[sym]["ltp"] = ltp
+                    prev = self.live_quotes[sym].get("prev_close") or meta.get("previousClose") or ltp
+                    self.live_quotes[sym]["change"] = round(ltp - prev, 2)
+                    self.live_quotes[sym]["change_pct"] = round(((ltp - prev) / prev) * 100.0, 2) if prev else 0.0
+
+            timestamps = res.get("timestamp", [])
+            quote = res.get("indicators", {}).get("quote", [{}])[0]
+            opens = quote.get("open", [])
+            highs = quote.get("high", [])
+            lows = quote.get("low", [])
+            closes = quote.get("close", [])
+            volumes = quote.get("volume", [])
+
+            candles = []
+            for i in range(len(timestamps)):
+                o = opens[i] if i < len(opens) else None
+                h = highs[i] if i < len(highs) else None
+                l = lows[i] if i < len(lows) else None
+                c = closes[i] if i < len(closes) else None
+                v = volumes[i] if (volumes and i < len(volumes) and volumes[i] is not None) else 0
+                if o is None or h is None or l is None or c is None:
+                    continue
+                candles.append({
+                    "time": int(timestamps[i]) * 1000,
+                    "open": round(float(o), 2),
+                    "high": round(float(h), 2),
+                    "low": round(float(l), 2),
+                    "close": round(float(c), 2),
+                    "volume": int(v or 0)
+                })
+
+            if not candles:
+                return None
+
+            # Aggregate 1h bars into true 4h candles when requested
+            if tf == "4h" and len(candles) >= 4:
+                agg = []
+                bucket = []
+                for bar in candles:
+                    bucket.append(bar)
+                    if len(bucket) == 4:
+                        agg.append({
+                            "time": bucket[0]["time"],
+                            "open": bucket[0]["open"],
+                            "high": max(x["high"] for x in bucket),
+                            "low": min(x["low"] for x in bucket),
+                            "close": bucket[-1]["close"],
+                            "volume": sum(x["volume"] for x in bucket)
+                        })
+                        bucket = []
+                if bucket:
+                    agg.append({
+                        "time": bucket[0]["time"],
+                        "open": bucket[0]["open"],
+                        "high": max(x["high"] for x in bucket),
+                        "low": min(x["low"] for x in bucket),
+                        "close": bucket[-1]["close"],
+                        "volume": sum(x["volume"] for x in bucket)
+                    })
+                candles = agg
+
+            # Anchor last candle to real regularMarketPrice if present
+            live_p = self.live_prices.get(sym)
+            if live_p and live_p > 0:
+                candles[-1]["close"] = round(float(live_p), 2)
+                candles[-1]["high"] = max(candles[-1]["high"], candles[-1]["close"])
+                candles[-1]["low"] = min(candles[-1]["low"], candles[-1]["close"])
+
+            return candles[-limit:] if len(candles) > limit else candles
+        except Exception:
+            return None
+
+    def get_candles(self, underlying: str = "NIFTY", interval: str = "1h", limit: int = 150, exchange: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Authentic NSE/BSE Candlestick retrieval:
+        1. Returns cached real Yahoo Finance OHLCV candles if fresh (15s open / 120s closed).
+        2. Fetches live historical candles from Yahoo Finance for NSE & BSE indices/stocks.
+        3. Only uses synthetic continuity fallback (anchored strictly to live_prices) for F&O option strikes or offline fallback.
+        """
+        sym = underlying.upper().replace("B-", "").replace("_USDT", "").replace("USDT", "").strip()
         parts = sym.split()
-        if len(parts) >= 3 and parts[-1] in ["CE", "PE", "CALL", "PUT"]:
+        is_option = (len(parts) >= 3 and parts[-1] in ["CE", "PE", "CALL", "PUT"])
+
+        if not is_option:
+            cache_key = f"{sym}_{exchange or 'AUTO'}_{interval.lower()}"
+            cached = self.candle_cache.get(cache_key)
+            ttl = 15.0 if self.is_market_open().get("is_open", False) else 120.0
+            if cached and (time.time() - cached["ts"]) < ttl:
+                res = list(cached["candles"])
+                live_p = self.live_prices.get(sym)
+                if res and live_p and live_p > 0:
+                    res[-1] = dict(res[-1])
+                    res[-1]["close"] = round(float(live_p), 2)
+                    res[-1]["high"] = max(res[-1]["high"], res[-1]["close"])
+                    res[-1]["low"] = min(res[-1]["low"], res[-1]["close"])
+                return res[-limit:]
+
+            real_candles = self._fetch_real_yahoo_candles(sym, interval=interval, limit=limit, exchange=exchange)
+            if real_candles and len(real_candles) >= 5:
+                self.candle_cache[cache_key] = {"ts": time.time(), "candles": real_candles}
+                return real_candles
+
+        # Resolve live spot for option strike or offline fallback
+        if is_option:
             base_sym = parts[0]
             try:
                 strike_val = float(parts[1])
                 opt_type = parts[2]
-                cfg = INDIAN_INDICES.get(base_sym)
-                spot_val = cfg["default_spot"] if cfg else 1000.0
+                spot_val = self.live_prices.get(base_sym) or INDIAN_INDICES.get(base_sym, {}).get("default_spot", 1000.0)
                 greeks = calculate_greeks(spot=spot_val, strike=strike_val, days_to_expiry=4, iv=0.15, option_type=opt_type)
                 base_p = greeks["price"]
             except Exception:
                 base_p = 150.0
         else:
-            cfg = INDIAN_INDICES.get(sym)
-            if not cfg:
-                eq = next((e for e in INDIAN_EQUITIES if e["symbol"] == sym), None)
-                base_p = eq["price"] if eq else 1000.0
-            else:
-                base_p = cfg["default_spot"]
+            base_p = self.live_prices.get(sym)
+            if not base_p:
+                cfg = INDIAN_INDICES.get(sym)
+                if cfg:
+                    base_p = cfg["default_spot"]
+                else:
+                    eq = next((e for e in INDIAN_EQUITIES if e["symbol"] == sym), None)
+                    base_p = eq["price"] if eq else 1000.0
 
         # Map intervals to exact millisecond step sizes and volatility scales
         interval_lower = interval.lower()
@@ -572,13 +816,11 @@ class IndianMarketManager:
             volatility = 0.0055
 
         now_ms = int(time.time() * 1000)
-        # Snap now_ms to clean timeframe boundary
         now_ms = (now_ms // step_ms) * step_ms
 
         raw_candles = []
         cur_close = float(base_p)
 
-        # Walk backward from current live price to ensure seamless open-close continuity
         for i in range(limit):
             t = now_ms - (i * step_ms)
             pct_change = (random.random() - 0.49) * volatility
@@ -600,35 +842,35 @@ class IndianMarketManager:
             })
             cur_close = o
 
-        # Reverse to chronological order (oldest to newest)
         raw_candles.reverse()
         return raw_candles
 
     def get_orderbook(self, underlying: str = "NIFTY", depth: int = 15) -> Dict[str, Any]:
         """
         Generate Level-2 Depth Ladder (bids and asks) in INR for Indian Indices, Stocks, or Options.
-        Realistic institutional liquidity spreads centered around current spot/LTP.
+        Centered strictly around current live_prices spot/LTP.
         """
-        sym = underlying.upper().replace("B-", "").replace("_USDT", "").replace("USDT", "")
+        sym = underlying.upper().replace("B-", "").replace("_USDT", "").replace("USDT", "").strip()
         parts = sym.split()
         if len(parts) >= 3 and parts[-1] in ["CE", "PE", "CALL", "PUT"]:
             base_sym = parts[0]
             try:
                 strike_val = float(parts[1])
                 opt_type = parts[2]
-                cfg = INDIAN_INDICES.get(base_sym)
-                spot_val = cfg["default_spot"] if cfg else 1000.0
+                spot_val = self.live_prices.get(base_sym) or INDIAN_INDICES.get(base_sym, {}).get("default_spot", 1000.0)
                 greeks = calculate_greeks(spot=spot_val, strike=strike_val, days_to_expiry=4, iv=0.15, option_type=opt_type)
                 base_p = greeks["price"]
             except Exception:
                 base_p = 150.0
         else:
-            cfg = INDIAN_INDICES.get(sym)
-            if not cfg:
-                eq = next((e for e in INDIAN_EQUITIES if e["symbol"] == sym), None)
-                base_p = eq["price"] if eq else 1000.0
-            else:
-                base_p = cfg["default_spot"]
+            base_p = self.live_prices.get(sym)
+            if not base_p:
+                cfg = INDIAN_INDICES.get(sym)
+                if cfg:
+                    base_p = cfg["default_spot"]
+                else:
+                    eq = next((e for e in INDIAN_EQUITIES if e["symbol"] == sym), None)
+                    base_p = eq["price"] if eq else 1000.0
 
         spread_step = max(0.05, round(base_p * 0.0003, 2))
         best_bid = round(base_p - spread_step, 2)

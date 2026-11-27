@@ -16,6 +16,15 @@ ini_set('display_errors', '0');
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Access-Control-Allow-Origin: *');
+header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
+
+if (strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') {
+    http_response_code(200);
+    echo json_encode(['status' => 'ok']);
+    exit;
+}
 
 // ----------------- CONFIGURATION -----------------
 // Shared secret passphrase between your App and this Relay Server
@@ -214,7 +223,7 @@ if ($action === 'ping') {
     exit;
 }
 
-// 1B. PUBLIC REAL MARKET QUOTES (Fetches live / closing NSE & BSE index prices)
+// 1B. PUBLIC REAL MARKET QUOTES (Fetches live / closing NSE & BSE index & equity prices)
 if ($action === 'quotes') {
     $tickers = [
         'NIFTY'      => '^NSEI',
@@ -222,15 +231,43 @@ if ($action === 'quotes') {
         'SENSEX'     => '^BSESN',
         'FINNIFTY'   => 'NIFTY_FIN_SERVICE.NS',
         'MIDCPNIFTY' => 'NIFTY_MID_SELECT.NS',
-        'INDIA VIX'  => '^INDIAVIX'
+        'BANKEX'     => 'BSE-BANK.BO',
+        'INDIA VIX'  => '^INDIAVIX',
+        'RELIANCE'   => 'RELIANCE.NS',
+        'TCS'        => 'TCS.NS',
+        'HDFCBANK'   => 'HDFCBANK.NS',
+        'INFY'       => 'INFY.NS',
+        'ICICIBANK'  => 'ICICIBANK.NS',
+        'TATAMOTORS' => 'TMPV.NS',
+        'SBIN'       => 'SBIN.NS',
+        'BHARTIARTL' => 'BHARTIARTL.NS',
+        'ITC'        => 'ITC.NS',
+        'LT'         => 'LT.NS',
+        'BAJFINANCE' => 'BAJFINANCE.NS',
+        'MARUTI'     => 'MARUTI.NS',
+        'SUZLON'     => 'SUZLON.NS',
+        'IDEA'       => 'IDEA.NS',
+        'YESBANK'    => 'YESBANK.NS',
+        'TATASTEEL'  => 'TATASTEEL.NS',
+        'IRFC'       => 'IRFC.NS',
+        'RVNL'       => 'RVNL.NS',
+        'ZOMATO'     => 'ETERNAL.NS',
+        'PNB'        => 'PNB.NS',
+        'NHPC'       => 'NHPC.NS',
+        'IOC'        => 'IOC.NS',
+        'GMRINFRA'   => 'GMRAIRPORT.NS',
+        'BHEL'       => 'BHEL.NS',
+        'SAIL'       => 'SAIL.NS',
+        'IDFCFIRSTB' => 'IDFCFIRSTB.NS'
     ];
     $defaults = [
-        'NIFTY'      => ['ltp' => 22776.10, 'prev' => 22620.45],
-        'BANKNIFTY'  => ['ltp' => 55128.40, 'prev' => 54633.05],
-        'SENSEX'     => ['ltp' => 73067.81, 'prev' => 72480.29],
-        'FINNIFTY'   => ['ltp' => 24556.10, 'prev' => 24649.50],
-        'MIDCPNIFTY' => ['ltp' => 12860.00, 'prev' => 12900.00],
-        'INDIA VIX'  => ['ltp' => 13.85,    'prev' => 13.49]
+        'NIFTY'      => ['ltp' => 25607.20, 'prev' => 25819.20],
+        'BANKNIFTY'  => ['ltp' => 63040.90, 'prev' => 63703.20],
+        'SENSEX'     => ['ltp' => 83339.26, 'prev' => 83938.30],
+        'FINNIFTY'   => ['ltp' => 28337.15, 'prev' => 28764.90],
+        'MIDCPNIFTY' => ['ltp' => 14360.25, 'prev' => 14340.60],
+        'BANKEX'     => ['ltp' => 71023.49, 'prev' => 71634.68],
+        'INDIA VIX'  => ['ltp' => 16.55,    'prev' => 17.67]
     ];
     $quotes = [];
     foreach ($tickers as $sym => $tk) {
@@ -258,30 +295,41 @@ if ($action === 'quotes') {
             $res = @file_get_contents($url, false, $ctx);
         }
 
-        $ltp = $defaults[$sym]['ltp'];
-        $prev = $defaults[$sym]['prev'];
+        $ltp = $defaults[$sym]['ltp'] ?? 0;
+        $prev = $defaults[$sym]['prev'] ?? $ltp;
+        $high = $ltp;
+        $low = $ltp;
+        $vol = 0;
         if ($res) {
             $parsed = json_decode($res, true);
             $meta = $parsed['chart']['result'][0]['meta'] ?? null;
             if ($meta) {
                 $mPrice = floatval($meta['regularMarketPrice'] ?? 0);
-                if ($mPrice > 100 || ($sym === 'INDIA VIX' && $mPrice > 5)) {
+                if ($mPrice > 0) {
                     $ltp = round($mPrice, 2);
                 }
-                $mPrev = floatval($meta['previousClose'] ?? 0);
-                if ($mPrev > 100 || ($sym === 'INDIA VIX' && $mPrev > 5)) {
+                $mPrev = floatval($meta['previousClose'] ?? ($meta['chartPreviousClose'] ?? 0));
+                if ($mPrev > 0) {
                     $prev = round($mPrev, 2);
                 }
+                $high = round(floatval($meta['regularMarketDayHigh'] ?? $ltp), 2);
+                $low = round(floatval($meta['regularMarketDayLow'] ?? $ltp), 2);
+                $vol = intval($meta['regularMarketVolume'] ?? 0);
             }
         }
-        $chg = round($ltp - $prev, 2);
-        $pct = $prev > 0 ? round(($chg / $prev) * 100, 2) : 0.0;
-        $quotes[$sym] = [
-            'ltp' => $ltp,
-            'prev_close' => $prev,
-            'change' => $chg,
-            'change_pct' => $pct
-        ];
+        if ($ltp > 0) {
+            $chg = round($ltp - $prev, 2);
+            $pct = $prev > 0 ? round(($chg / $prev) * 100, 2) : 0.0;
+            $quotes[$sym] = [
+                'ltp' => $ltp,
+                'prev_close' => $prev,
+                'change' => $chg,
+                'change_pct' => $pct,
+                'high' => $high,
+                'low' => $low,
+                'volume' => $vol
+            ];
+        }
     }
 
     echo json_encode([
@@ -289,6 +337,68 @@ if ($action === 'quotes') {
         'quotes' => $quotes,
         'timestamp' => date('Y-m-d H:i:s')
     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
+// 1B-2. REAL HISTORICAL & LIVE CANDLES PROXY (NSE & BSE)
+if ($action === 'candles') {
+    $sym = strtoupper(trim($_GET['symbol'] ?? 'NIFTY'));
+    $tf = strtolower(trim($_GET['interval'] ?? '1h'));
+    $exch = strtoupper(trim($_GET['exchange'] ?? ''));
+
+    $map = [
+        'NIFTY' => '^NSEI', 'BANKNIFTY' => '^NSEBANK', 'SENSEX' => '^BSESN',
+        'FINNIFTY' => 'NIFTY_FIN_SERVICE.NS', 'MIDCPNIFTY' => 'NIFTY_MID_SELECT.NS',
+        'BANKEX' => 'BSE-BANK.BO', 'INDIA VIX' => '^INDIAVIX',
+        'TATAMOTORS' => 'TMPV.NS', 'ZOMATO' => 'ETERNAL.NS', 'GMRINFRA' => 'GMRAIRPORT.NS'
+    ];
+    $tk = $map[$sym] ?? ($exch === 'BSE' ? ($sym . '.BO') : ($sym . '.NS'));
+
+    $yfIv = '60m'; $yfRng = '1mo';
+    if ($tf === '1m') { $yfIv = '1m'; $yfRng = '1d'; }
+    elseif ($tf === '5m') { $yfIv = '5m'; $yfRng = '5d'; }
+    elseif ($tf === '15m') { $yfIv = '15m'; $yfRng = '5d'; }
+    elseif ($tf === '1h') { $yfIv = '60m'; $yfRng = '1mo'; }
+    elseif ($tf === '4h') { $yfIv = '60m'; $yfRng = '3mo'; }
+    elseif ($tf === '1d') { $yfIv = '1d'; $yfRng = '1y'; }
+
+    $url = "https://query1.finance.yahoo.com/v8/finance/chart/" . urlencode($tk) . "?interval=$yfIv&range=$yfRng";
+    $res = null;
+    if (function_exists('curl_init')) {
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)');
+        curl_setopt($ch, CURLOPT_TIMEOUT, 5);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        $res = curl_exec($ch);
+        curl_close($ch);
+    }
+    $candles = [];
+    if ($res) {
+        $parsed = json_decode($res, true);
+        $r0 = $parsed['chart']['result'][0] ?? null;
+        if ($r0) {
+            $ts = $r0['timestamp'] ?? [];
+            $q = $r0['indicators']['quote'][0] ?? [];
+            for ($i = 0; $i < count($ts); $i++) {
+                $o = $q['open'][$i] ?? null;
+                $h = $q['high'][$i] ?? null;
+                $l = $q['low'][$i] ?? null;
+                $c = $q['close'][$i] ?? null;
+                $v = $q['volume'][$i] ?? 0;
+                if ($o === null || $h === null || $l === null || $c === null) continue;
+                $candles[] = [
+                    'time' => intval($ts[$i]) * 1000,
+                    'open' => round(floatval($o), 2),
+                    'high' => round(floatval($h), 2),
+                    'low' => round(floatval($l), 2),
+                    'close' => round(floatval($c), 2),
+                    'volume' => intval($v ?: 0)
+                ];
+            }
+        }
+    }
+    echo json_encode(['status' => 'success', 'symbol' => $sym, 'candles' => $candles]);
     exit;
 }
 
