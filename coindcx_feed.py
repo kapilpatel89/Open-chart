@@ -92,7 +92,7 @@ class CoinDCXFeed:
         return p or "BTC"
 
     def get_market_list(self) -> List[Dict[str, Any]]:
-        """Return formatted list of USDT crypto pairs."""
+        """Return formatted list of all 600+ USDT crypto pairs (CoinDCX primary + Binance/Bybit merge)."""
         all_t = self.fetch_all_tickers()
         markets = []
         seen = set()
@@ -105,6 +105,8 @@ class CoinDCXFeed:
                 seen.add(clean_sym)
                 base = self.get_base_symbol(m)
                 lp = float(t.get("last_price", 0) or 0)
+                if lp <= 0:
+                    continue
                 chg = float(t.get("change_24_hour", 0) or 0)
                 vol = float(t.get("volume", 0) or 0)
                 markets.append({
@@ -115,7 +117,43 @@ class CoinDCXFeed:
                     "change_24h": round(chg, 2),
                     "volume": round(vol, 2)
                 })
+
+        # Fallback / supplement from Binance if CoinDCX returned very few tickers
+        if len(markets) < 50:
+            try:
+                req = urllib.request.Request(
+                    "https://api.binance.com/api/v3/ticker/24hr",
+                    headers={"User-Agent": "Mozilla/5.0"}
+                )
+                with urllib.request.urlopen(req, timeout=4.0) as resp:
+                    b_list = json.loads(resp.read().decode())
+                    if isinstance(b_list, list):
+                        for t in b_list:
+                            s = t.get("symbol", "")
+                            if not s.endswith("USDT") or "UPUSDT" in s or "DOWNUSDT" in s:
+                                continue
+                            base = s[:-4]
+                            clean_sym = f"B-{base}_USDT"
+                            if clean_sym in seen:
+                                continue
+                            lp = float(t.get("lastPrice", 0) or 0)
+                            if lp <= 0:
+                                continue
+                            seen.add(clean_sym)
+                            markets.append({
+                                "symbol": clean_sym,
+                                "name": f"{base} / USDT",
+                                "base": base,
+                                "last_price": lp,
+                                "change_24h": round(float(t.get("priceChangePercent", 0) or 0), 2),
+                                "volume": round(float(t.get("quoteVolume", 0) or 0), 2)
+                            })
+            except Exception:
+                pass
+
         markets.sort(key=lambda x: x["volume"], reverse=True)
+        for item in markets[:40]:
+            self.active_pairs.add(item["symbol"])
         return markets
 
     def fetch_candles(self, pair: str, interval: str = "1h", limit: int = 160) -> List[Dict[str, Any]]:

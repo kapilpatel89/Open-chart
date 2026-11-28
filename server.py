@@ -20,6 +20,7 @@ from order_manager import OrderManager
 from pine_engine import PineEngine
 from indian_market import indian_market, INDIAN_INDICES
 from kotak_client import kotak_client
+from strategy_scanner import scan_markets
 
 app = FastAPI(title="Open Chart - 3D Trading Terminal", version="2.0.0")
 
@@ -156,6 +157,11 @@ async def get_indian_optionchain(symbol: str, expiry: Optional[str] = None, coun
 async def get_indian_candles(symbol: str = "NIFTY", interval: str = "1h", limit: int = 150, exchange: Optional[str] = None):
     """Return OHLCV candlesticks for an Indian index or equity."""
     return await asyncio.to_thread(indian_market.get_candles, symbol, interval, limit, exchange)
+
+@app.get("/api/scanner/scan")
+async def run_strategy_scanner(mode: str = "crypto", interval: str = "15m", limit: int = 25):
+    """Scan Crypto or Indian markets across 5 strategies and return ranked CALL/PUT recommendations."""
+    return await asyncio.to_thread(scan_markets, feed, mode, interval, limit)
 
 # --- Kotak Neo Trade API & Whitelisted Relay Endpoints ---
 

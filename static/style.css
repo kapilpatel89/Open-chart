@@ -51,23 +51,67 @@ body {
     background: radial-gradient(circle at 50% 0%, #101625 0%, #05070a 60%);
 }
 
-/* --- TOP NAVIGATION BAR --- */
+/* --- TOP NAVIGATION BAR (Uncluttered Balanced 3-Zone Bar) --- */
 .topbar {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    height: 52px;
-    background: rgba(10, 13, 20, 0.85);
-    backdrop-filter: blur(12px);
+    height: 48px;
+    background: rgba(9, 12, 19, 0.92);
+    backdrop-filter: blur(14px);
     border-bottom: 1px solid var(--border-color);
-    padding: 0 16px;
+    padding: 0 12px;
+    gap: 8px;
     z-index: 100;
 }
 
-.topbar-left, .topbar-right {
+.topbar-left, .topbar-center, .topbar-right {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 8px;
+    min-width: 0;
+}
+
+.topbar-center {
+    flex-shrink: 1;
+}
+
+.topbar-right {
+    flex-shrink: 0;
+}
+
+.btn-icon-only {
+    padding: 5px 8px !important;
+    line-height: 1;
+}
+
+.dropdown-section-title {
+    font-size: 9.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.7px;
+    color: var(--text-muted);
+    font-weight: 700;
+    margin-bottom: 2px;
+}
+
+.dropdown-divider {
+    height: 1px;
+    background: var(--border-color);
+    margin: 2px 0;
+}
+
+@media (max-width: 1360px) {
+    .ticker-stats {
+        display: none;
+    }
+    .topbar {
+        padding: 0 8px;
+        gap: 6px;
+    }
+    .btn-secondary {
+        padding: 5px 9px;
+        font-size: 11px;
+    }
 }
 
 .logo {
@@ -2013,11 +2057,21 @@ canvas {
         width: 36px;
     }
 
-    .drawing-btn {
+    .tool-btn {
         width: 28px;
         height: 28px;
         font-size: 13px;
     }
+
+    .topbar-center {
+        order: 3;
+        width: 100%;
+        justify-content: space-between;
+        overflow-x: auto;
+        padding-bottom: 2px;
+        scrollbar-width: none;
+    }
+    .topbar-center::-webkit-scrollbar { display: none; }
 
     .pane-tf-trend-bar {
         right: 80px;
@@ -2032,11 +2086,12 @@ canvas {
 
 @media (max-width: 768px) {
     .main-workspace {
-        height: calc(100vh - 48px - 44px); /* Full height viewport on mobile */
+        flex: 1;
+        min-height: 0;
     }
 
     .topbar {
-        padding: 4px 6px;
+        padding: 5px 8px;
         justify-content: space-between;
     }
 
@@ -2045,12 +2100,12 @@ canvas {
     }
 
     .market-search-box {
-        padding: 3px 8px;
+        padding: 4px 8px;
         gap: 5px;
     }
 
     .symbol-display-text {
-        font-size: 12px;
+        font-size: 11.5px;
     }
 
     .symbol-display-badge {
@@ -2059,30 +2114,26 @@ canvas {
     }
 
     /* Hide redundant desktop text to keep mobile clean */
-    .stat-label, .account-label {
+    .account-label, .ticker-stats {
         display: none;
-    }
-
-    .ticker-stat {
-        font-size: 10px;
     }
 
     /* Collapse drawing toolbar into ultra-slim thumb strip */
     .drawing-toolbar {
-        width: 32px;
+        width: 34px;
         padding: 6px 0;
     }
 
-    .drawing-btn {
+    .tool-btn {
         width: 26px;
         height: 26px;
         font-size: 12px;
-        margin: 2px 0;
+        margin: 1px 0;
     }
 
-    .tool-sep {
+    .tool-divider {
         width: 18px;
-        margin: 4px auto;
+        margin: 3px auto;
     }
 
     /* Trend Bar inside Chart on Mobile */
@@ -2114,19 +2165,10 @@ canvas {
         box-shadow: -10px 0 30px rgba(0, 0, 0, 0.85);
     }
 
-    /* Bottom Panel (Pine IDE) Responsive */
-    .pine-bottom-panel {
-        height: 240px;
-    }
-
-    .pine-bottom-panel.collapsed {
-        height: 38px;
-    }
-
-    .pine-bottom-panel.fullscreen {
-        height: 100vh;
-        top: 0;
-        z-index: 99999;
+    /* Bottom Dock (Pine IDE) Responsive */
+    .bottom-dock {
+        height: 55vh;
+        max-height: 420px;
     }
 
     /* Modals Responsive */
@@ -2893,4 +2935,181 @@ canvas {
         transform: translateY(0) scale(1);
     }
 }
+
+/* ==========================================================================
+   AI MULTI-STRATEGY SCANNER MODAL (CALL / PUT SIGNALS)
+   ========================================================================== */
+.btn-scanner-glow {
+    background: linear-gradient(135deg, rgba(168, 85, 247, 0.2), rgba(0, 240, 255, 0.2)) !important;
+    border: 1px solid rgba(168, 85, 247, 0.5) !important;
+    color: #e9d5ff !important;
+}
+.btn-scanner-glow:hover {
+    border-color: #00f0ff !important;
+    color: #ffffff !important;
+    box-shadow: 0 0 12px rgba(168, 85, 247, 0.45);
+}
+
+.scanner-modal-card {
+    max-width: 1180px !important;
+    width: 95vw !important;
+    max-height: 90vh !important;
+    display: flex;
+    flex-direction: column;
+    background: #080c14 !important;
+    border: 1px solid rgba(168, 85, 247, 0.4) !important;
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.9), 0 0 36px rgba(168, 85, 247, 0.16) !important;
+}
+
+.scanner-mode-badge {
+    font-size: 10px;
+    font-weight: 800;
+    padding: 2px 7px;
+    border-radius: 4px;
+    background: rgba(0, 240, 255, 0.16);
+    color: #00f0ff;
+    border: 1px solid rgba(0, 240, 255, 0.35);
+    margin-left: 6px;
+    vertical-align: middle;
+}
+
+.scanner-summary-ribbon {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    padding: 10px 16px;
+    background: #0b101b;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.scanner-stat-card {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 6px;
+    padding: 8px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.scanner-stat-card .s-label {
+    font-size: 10px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+}
+
+.scanner-stat-card b {
+    font-size: 15px;
+    font-family: var(--font-mono);
+    color: #fff;
+}
+
+.scanner-stat-card.call b { color: #00e676; }
+.scanner-stat-card.put b { color: #ff3366; }
+.scanner-stat-card.pick b { color: #00f0ff; font-size: 13px; }
+
+.scanner-progress-wrap {
+    position: relative;
+    height: 22px;
+    background: #06090f;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    display: flex;
+    align-items: center;
+    padding: 0 14px;
+}
+
+.scanner-progress-wrap.hidden {
+    display: none;
+}
+
+.scanner-progress-bar {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 0%;
+    background: linear-gradient(90deg, rgba(168, 85, 247, 0.35), rgba(0, 240, 255, 0.35));
+    transition: width 0.2s ease;
+}
+
+.scanner-progress-text {
+    position: relative;
+    z-index: 2;
+    font-size: 11px;
+    font-family: var(--font-mono);
+    color: #00f0ff;
+}
+
+.signal-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 10.5px;
+    font-weight: 800;
+    font-family: var(--font-mono);
+    letter-spacing: 0.3px;
+}
+
+.signal-pill.call {
+    background: rgba(0, 230, 118, 0.16);
+    color: #00ff88;
+    border: 1px solid rgba(0, 230, 118, 0.45);
+}
+
+.signal-pill.put {
+    background: rgba(255, 23, 68, 0.16);
+    color: #ff4d6d;
+    border: 1px solid rgba(255, 23, 68, 0.45);
+}
+
+.opt-strike-hint {
+    font-size: 10px;
+    color: #00f0ff;
+    font-family: var(--font-mono);
+    margin-top: 3px;
+}
+
+.conf-badge {
+    display: inline-block;
+    min-width: 44px;
+    padding: 3px 6px;
+    border-radius: 4px;
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 11px;
+    background: rgba(0, 240, 255, 0.12);
+    color: #00f0ff;
+}
+
+.conf-badge.high {
+    background: rgba(0, 230, 118, 0.2);
+    color: #00ff88;
+}
+
+.strat-pill {
+    display: inline-block;
+    font-size: 10px;
+    padding: 2px 6px;
+    margin: 1px 2px;
+    border-radius: 3px;
+    background: rgba(168, 85, 247, 0.14);
+    border: 1px solid rgba(168, 85, 247, 0.3);
+    color: #d8b4fe;
+}
+
+.scanner-actions-cell {
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+}
+
+@media (max-width: 768px) {
+    .scanner-summary-ribbon {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
 

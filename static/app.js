@@ -104,6 +104,7 @@ class OpenChartApp {
         this.setupOptionChainModal();
         this.setupTrendingModal();
         this.setupKotakModal();
+        this.setupStrategyScanner();
 
         const coinSelect = document.getElementById('coin-select');
         if (coinSelect) {
@@ -225,8 +226,8 @@ class OpenChartApp {
             this.hideContextMenu();
         });
 
-        // Quick Indicator Checkboxes
-        ['ind-ema9', 'ind-ema21', 'ind-ema50', 'ind-ema200', 'ind-bb', 'ind-supertrend', 'ind-rsi'].forEach(id => {
+        // Quick Indicator Checkboxes (All 9 Overlays & Sub-Panes)
+        ['ind-ema9', 'ind-ema21', 'ind-ema50', 'ind-ema200', 'ind-vwap', 'ind-bb', 'ind-supertrend', 'ind-rsi', 'ind-macd'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.addEventListener('change', () => this.applyQuickIndicators());
         });
@@ -812,6 +813,7 @@ class OpenChartApp {
             if (cached) {
                 const parsed = JSON.parse(cached);
                 if (Array.isArray(parsed) && parsed.length > 10) {
+                    this.cryptoMarkets = parsed;
                     this.markets = parsed;
                     this.populateCoinDropdown(parsed);
                 }
@@ -819,72 +821,130 @@ class OpenChartApp {
         } catch(e) {}
 
         if (!this.markets || !this.markets.length) {
+            this.cryptoMarkets = defaultMarkets;
             this.markets = defaultMarkets;
             this.populateCoinDropdown(defaultMarkets);
         }
 
-        // 2. Fetch fresh 24hr tickers from Binance CORS API or local server non-blocking
-        try {
-            const bResp = await fetch('https://api.binance.com/api/v3/ticker/24hr');
-            if (bResp.ok) {
-                const rawList = await bResp.json();
-                if (Array.isArray(rawList) && rawList.length) {
-                    const usdtTickers = rawList
-                        .filter(t => t.symbol.endsWith('USDT') && !t.symbol.includes('UP') && !t.symbol.includes('DOWN'))
-                        .sort((a, b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume));
+        // 2. Fetch ALL 600+ coins: CoinDCX backend (/api/markets) + Binance + Bybit + Relay fallback
+        const mergedMap = new Map();
+        const addMarketItem = (sym, name, price, chg, vol) => {
+            const base = this.cleanSymbol(sym);
+            if (!base || !(price > 0)) return;
+            const key = base;
+            const existing = mergedMap.get(key);
+            if (!existing || vol > existing.volume) {
+                mergedMap.set(key, {
+                    symbol: sym.startsWith('B-') ? sym : `${base}_USDT`,
+                    name: name || `${base} / USDT`,
+                    last_price: price >= 1 ? price.toFixed(2) : (price >= 0.01 ? price.toFixed(4) : price.toFixed(6)),
+                    change_24h: isFinite(chg) ? parseFloat(chg.toFixed(2)) : 0,
+                    volume: isFinite(vol) ? vol : 0
+                });
+            }
+        };
 
-                    const liveMarkets = usdtTickers.map(t => {
-                        const base = t.symbol.replace('USDT', '');
-                        const p = parseFloat(t.lastPrice);
-                        return {
-                            symbol: `${base}_USDT`,
-                            name: `${base} / USDT`,
-                            last_price: p >= 1 ? p.toFixed(2) : (p >= 0.01 ? p.toFixed(4) : p.toFixed(6)),
-                            change_24h: parseFloat(t.priceChangePercent),
-                            volume: parseFloat(t.quoteVolume)
-                        };
-                    });
-
-                    // Ensure JCT / USDT is always present for search & selection
-                    if (!liveMarkets.some(m => m.symbol === 'JCT_USDT')) {
-                        try {
-                            const mResp = await fetch('https://api.mexc.com/api/v3/ticker/24hr?symbol=JCTUSDT');
-                            if (mResp.ok) {
-                                const jct = await mResp.json();
-                                if (jct && jct.symbol === 'JCTUSDT') {
-                                    const p = parseFloat(jct.lastPrice);
-                                    liveMarkets.push({
-                                        symbol: 'JCT_USDT',
-                                        name: 'JCT / USDT',
-                                        last_price: p >= 1 ? p.toFixed(2) : (p >= 0.01 ? p.toFixed(4) : p.toFixed(6)),
-                                        change_24h: parseFloat(jct.priceChangePercent),
-                                        volume: parseFloat(jct.quoteVolume)
-                                    });
-                                }
-                            }
-                        } catch (mErr) {
-                            liveMarkets.push({
-                                symbol: 'JCT_USDT',
-                                name: 'JCT / USDT',
-                                last_price: '0.001582',
-                                change_24h: 3.20,
-                                volume: 112000000
-                            });
+        // 2a & 2b. Fetch CoinDCX Backend (/api/markets -> 617 coins) & Binance CORS in parallel
+        await Promise.allSettled([
+            (async () => {
+                try {
+                    const cCtrl = new AbortController();
+                    const cTm = setTimeout(() => cCtrl.abort(), 3000);
+                    const cResp = await fetch('/api/markets', { signal: cCtrl.signal });
+                    clearTimeout(cTm);
+                    if (cResp.ok) {
+                        const cList = await cResp.json();
+                        if (Array.isArray(cList)) {
+                            cList.forEach(t => addMarketItem(t.symbol, t.name, parseFloat(t.last_price), parseFloat(t.change_24h), parseFloat(t.volume)));
                         }
                     }
+                } catch (e) {}
+            })(),
+            (async () => {
+                try {
+                    const bCtrl = new AbortController();
+                    const bTm = setTimeout(() => bCtrl.abort(), 3500);
+                    const bResp = await fetch('https://api.binance.com/api/v3/ticker/24hr', { signal: bCtrl.signal });
+                    clearTimeout(bTm);
+                    if (bResp.ok) {
+                        const rawList = await bResp.json();
+                        if (Array.isArray(rawList)) {
+                            rawList
+                                .filter(t => t.symbol.endsWith('USDT') && !t.symbol.includes('UP') && !t.symbol.includes('DOWN'))
+                                .forEach(t => {
+                                    const base = t.symbol.replace('USDT', '');
+                                    addMarketItem(`${base}_USDT`, `${base} / USDT`, parseFloat(t.lastPrice), parseFloat(t.priceChangePercent), parseFloat(t.quoteVolume));
+                                });
+                        }
+                    }
+                } catch (e) {}
+            })()
+        ]);
 
-                    if (liveMarkets.length > 20) {
-                        this.markets = liveMarkets;
-                        this.populateCoinDropdown(liveMarkets);
-                        try {
-                            localStorage.setItem('openchart_markets_cache', JSON.stringify(liveMarkets));
-                        } catch(e) {}
-                        return;
+        // 2c. Secondary Fallbacks (cPanel CoinDCX Proxy + Bybit CORS Spot API) if < 100 coins
+        if (mergedMap.size < 100) {
+            const relayUrl = (document.getElementById('kotak-relay-url')?.value || localStorage.getItem('kotak_relay_url') || 'https://trade.ravikantadoor.in/simple/kotak_relay.php').trim();
+            await Promise.allSettled([
+                (async () => {
+                    if (!relayUrl) return;
+                    try {
+                        const sep = relayUrl.includes('?') ? '&' : '?';
+                        const rCtrl = new AbortController();
+                        const rTm = setTimeout(() => rCtrl.abort(), 3500);
+                        const rResp = await fetch(`${relayUrl}${sep}action=coindcx_markets`, { signal: rCtrl.signal });
+                        clearTimeout(rTm);
+                        if (rResp.ok) {
+                            const rData = await rResp.json();
+                            if (rData && Array.isArray(rData.markets)) {
+                                rData.markets.forEach(t => addMarketItem(t.symbol, t.name, parseFloat(t.last_price), parseFloat(t.change_24h), parseFloat(t.volume)));
+                            }
+                        }
+                    } catch (e) {}
+                })(),
+                (async () => {
+                    try {
+                        const byCtrl = new AbortController();
+                        const byTm = setTimeout(() => byCtrl.abort(), 3500);
+                        const byResp = await fetch('https://api.bybit.com/v5/market/tickers?category=spot', { signal: byCtrl.signal });
+                        clearTimeout(byTm);
+                        if (byResp.ok) {
+                            const byData = await byResp.json();
+                            const list = byData?.result?.list || [];
+                            list.filter(t => t.symbol && t.symbol.endsWith('USDT')).forEach(t => {
+                                const base = t.symbol.replace('USDT', '');
+                                addMarketItem(`${base}_USDT`, `${base} / USDT`, parseFloat(t.lastPrice), parseFloat(t.price24hPcnt || 0) * 100, parseFloat(t.turnover24h || 0));
+                            });
+                        }
+                    } catch (e) {}
+                })()
+            ]);
+        }
+
+        // 2d. Ensure JCT / USDT is always present
+        if (!mergedMap.has('JCT')) {
+            try {
+                const mResp = await fetch('https://api.mexc.com/api/v3/ticker/24hr?symbol=JCTUSDT');
+                if (mResp.ok) {
+                    const jct = await mResp.json();
+                    if (jct && jct.symbol === 'JCTUSDT') {
+                        addMarketItem('JCT_USDT', 'JCT / USDT', parseFloat(jct.lastPrice), parseFloat(jct.priceChangePercent), parseFloat(jct.quoteVolume));
                     }
                 }
+            } catch (mErr) {
+                addMarketItem('JCT_USDT', 'JCT / USDT', 0.001582, 3.20, 112000000);
             }
-        } catch(e) {
-            // Offline or rate-limited; fallback list is already smoothly rendered!
+        }
+
+        const liveMarkets = Array.from(mergedMap.values()).sort((a, b) => b.volume - a.volume);
+        if (liveMarkets.length > 20) {
+            this.cryptoMarkets = liveMarkets;
+            if (this.marketMode === 'crypto') {
+                this.markets = liveMarkets;
+                this.populateCoinDropdown(liveMarkets);
+            }
+            try {
+                localStorage.setItem('openchart_markets_cache', JSON.stringify(liveMarkets));
+            } catch(e) {}
         }
     }
 
@@ -1038,7 +1098,8 @@ class OpenChartApp {
                     return;
                 }
             } else {
-                const listRowsHtml = items.slice(0, 150).map(m => {
+                const renderLimit = q ? 500 : 350;
+                const listRowsHtml = items.slice(0, renderLimit).map(m => {
                     const clean = this.cleanSymbol(m.symbol);
                     const isSelected = clean === cleanCur;
                     const chg = parseFloat(m.change_24h || 0);
@@ -1115,7 +1176,7 @@ class OpenChartApp {
         const curSym = this.marketMode === 'ind' ? '₹' : '$';
         if (coinSelect) {
             const currentClean = (this.currentPair || 'BTC_USDT').replace('B-', '').replace('_', '').toUpperCase();
-            coinSelect.innerHTML = marketList.slice(0, 150).map(m => {
+            coinSelect.innerHTML = marketList.slice(0, 400).map(m => {
                 const symClean = (m.symbol || '').replace('B-', '').replace('_', '').toUpperCase();
                 const isSelected = symClean === currentClean;
                 return `
@@ -1124,6 +1185,10 @@ class OpenChartApp {
                     </option>
                 `;
             }).join('');
+        }
+        const allCatBtn = document.querySelector('.sym-cat-btn[data-cat="all"]');
+        if (allCatBtn) {
+            allCatBtn.textContent = this.marketMode === 'ind' ? `All (${marketList.length})` : `All Coins (${marketList.length})`;
         }
         if (typeof this.renderSymbolModalList === 'function') {
             this.renderSymbolModalList();
@@ -2613,7 +2678,7 @@ class OpenChartApp {
             try {
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), 3000);
-                const url = `/api/candles?pair=${encodeURIComponent(this.currentPair)}&interval=${this.currentInterval}&limit=160`;
+                const url = `/api/candles?pair=${encodeURIComponent(this.currentPair)}&interval=${this.currentInterval}&limit=250`;
                 const resp = await fetch(url, { signal: controller.signal });
                 clearTimeout(timeoutId);
                 if (resp.ok) {
@@ -2627,7 +2692,7 @@ class OpenChartApp {
             // 2. Standalone / GitHub Pages Fallback: Direct Binance Open CORS API (Crypto only)
             if ((!candles || !candles.length) && this.marketMode !== 'ind') {
                 const cleanSym = this.getCleanSymbol() + 'USDT';
-                const bUrl = `https://api.binance.com/api/v3/klines?symbol=${cleanSym}&interval=${this.currentInterval}&limit=160`;
+                const bUrl = `https://api.binance.com/api/v3/klines?symbol=${cleanSym}&interval=${this.currentInterval}&limit=250`;
                 try {
                     const bController = new AbortController();
                     const bTimeout = setTimeout(() => bController.abort(), 3000);
@@ -2724,9 +2789,12 @@ class OpenChartApp {
     }
 
     applyQuickIndicators() {
-        if (!this.chart || !this.chart.candles.length) return;
+        if (!this.chart || !this.chart.candles || !this.chart.candles.length) return;
         const candles = this.chart.candles;
         const closes = candles.map(c => c.close);
+        const highs = candles.map(c => c.high);
+        const lows = candles.map(c => c.low);
+        const vols = candles.map(c => c.volume || 1);
         const times = candles.map(c => c.time);
         const indicators = [];
 
@@ -2738,7 +2806,7 @@ class OpenChartApp {
                 color: '#00f0ff',
                 linewidth: 2,
                 pane: 'main',
-                data: times.map((t, i) => ({ time: t, value: ema9[i] })).filter(d => d.value !== null)
+                data: times.map((t, i) => ({ time: t, value: ema9[i] })).filter(d => d.value !== null && isFinite(d.value))
             });
         }
 
@@ -2750,7 +2818,7 @@ class OpenChartApp {
                 color: '#ffaa00',
                 linewidth: 2,
                 pane: 'main',
-                data: times.map((t, i) => ({ time: t, value: ema21[i] })).filter(d => d.value !== null)
+                data: times.map((t, i) => ({ time: t, value: ema21[i] })).filter(d => d.value !== null && isFinite(d.value))
             });
         }
 
@@ -2762,41 +2830,203 @@ class OpenChartApp {
                 color: '#a855f7',
                 linewidth: 2,
                 pane: 'main',
-                data: times.map((t, i) => ({ time: t, value: ema50[i] })).filter(d => d.value !== null)
+                data: times.map((t, i) => ({ time: t, value: ema50[i] })).filter(d => d.value !== null && isFinite(d.value))
             });
         }
 
         // EMA 200
         if (document.getElementById('ind-ema200')?.checked) {
-            const ema200 = this.calcEma(closes, 200);
+            const ema200 = this.calcEma(closes, Math.min(200, Math.max(20, closes.length - 1)));
             indicators.push({
                 title: 'EMA 200',
                 color: '#ffd700',
                 linewidth: 2,
                 pane: 'main',
-                data: times.map((t, i) => ({ time: t, value: ema200[i] })).filter(d => d.value !== null)
+                data: times.map((t, i) => ({ time: t, value: ema200[i] })).filter(d => d.value !== null && isFinite(d.value))
             });
         }
 
-        // RSI
+        // VWAP (Institutional Volume Weighted Average Price)
+        if (document.getElementById('ind-vwap')?.checked) {
+            let cumPV = 0, cumV = 0;
+            const vwapData = [];
+            for (let i = 0; i < closes.length; i++) {
+                const tp = (highs[i] + lows[i] + closes[i]) / 3;
+                const v = Math.max(1, vols[i]);
+                cumPV += tp * v;
+                cumV += v;
+                vwapData.push({ time: times[i], value: cumPV / cumV });
+            }
+            indicators.push({
+                title: 'VWAP',
+                color: '#38bdf8',
+                linewidth: 2,
+                dashed: true,
+                pane: 'main',
+                data: vwapData
+            });
+        }
+
+        // Bollinger Bands (20, 2) with cloud fill
+        if (document.getElementById('ind-bb')?.checked && closes.length >= 20) {
+            const period = 20, mult = 2.0;
+            const upperData = [], basisData = [], lowerData = [];
+            for (let i = period - 1; i < closes.length; i++) {
+                let sum = 0;
+                for (let j = i - period + 1; j <= i; j++) sum += closes[j];
+                const mean = sum / period;
+                let sq = 0;
+                for (let j = i - period + 1; j <= i; j++) sq += (closes[j] - mean) ** 2;
+                const std = Math.sqrt(sq / period);
+                upperData.push({ time: times[i], value: mean + mult * std });
+                basisData.push({ time: times[i], value: mean });
+                lowerData.push({ time: times[i], value: mean - mult * std });
+            }
+            indicators.push({
+                title: 'BB Upper (20,2)',
+                color: '#a855f7',
+                linewidth: 1.5,
+                pane: 'main',
+                data: upperData,
+                fillPairData: lowerData,
+                fillColor: 'rgba(168, 85, 247, 0.08)'
+            });
+            indicators.push({
+                title: 'BB Basis (20)',
+                color: '#f59e0b',
+                linewidth: 1,
+                dashed: true,
+                pane: 'main',
+                data: basisData
+            });
+            indicators.push({
+                title: 'BB Lower (20,2)',
+                color: '#a855f7',
+                linewidth: 1.5,
+                pane: 'main',
+                data: lowerData
+            });
+        }
+
+        // Supertrend (10, 3) with Bullish Green & Bearish Red Segments
+        if (document.getElementById('ind-supertrend')?.checked && closes.length >= 12) {
+            const period = 10, mult = 3.0;
+            const tr = [highs[0] - lows[0]];
+            for (let i = 1; i < closes.length; i++) {
+                tr.push(Math.max(highs[i] - lows[i], Math.abs(highs[i] - closes[i - 1]), Math.abs(lows[i] - closes[i - 1])));
+            }
+            const atr = new Array(closes.length).fill(null);
+            let sumTr = 0;
+            for (let i = 0; i < period; i++) sumTr += tr[i];
+            atr[period - 1] = sumTr / period;
+            for (let i = period; i < closes.length; i++) {
+                atr[i] = (atr[i - 1] * (period - 1) + tr[i]) / period;
+            }
+            const upBand = new Array(closes.length).fill(0);
+            const loBand = new Array(closes.length).fill(0);
+            const dir = new Array(closes.length).fill(1);
+            const stData = [];
+            for (let i = period; i < closes.length; i++) {
+                const hl2 = (highs[i] + lows[i]) / 2;
+                const up = hl2 + mult * (atr[i] || 0);
+                const dn = hl2 - mult * (atr[i] || 0);
+                if (i > period) {
+                    upBand[i] = closes[i - 1] > upBand[i - 1] ? up : Math.min(up, upBand[i - 1]);
+                    loBand[i] = closes[i - 1] < loBand[i - 1] ? dn : Math.max(dn, loBand[i - 1]);
+                    if (dir[i - 1] === 1) dir[i] = closes[i] < loBand[i] ? -1 : 1;
+                    else dir[i] = closes[i] > upBand[i] ? 1 : -1;
+                } else {
+                    upBand[i] = up;
+                    loBand[i] = dn;
+                    dir[i] = closes[i] > upBand[i] ? 1 : -1;
+                }
+                const val = dir[i] === 1 ? loBand[i] : upBand[i];
+                stData.push({
+                    time: times[i],
+                    value: val,
+                    color: dir[i] === 1 ? '#00e676' : '#ff1744'
+                });
+            }
+            indicators.push({
+                title: 'Supertrend (10,3)',
+                color: '#00e676',
+                linewidth: 2,
+                pane: 'main',
+                data: stData
+            });
+        }
+
+        // RSI (14) Sub-Pane
         if (document.getElementById('ind-rsi')?.checked) {
             const rsi = this.calcRsi(closes, 14);
             indicators.push({
                 title: 'RSI 14',
                 color: '#e040fb',
+                linewidth: 1.7,
                 pane: 'rsi',
-                data: times.map((t, i) => ({ time: t, value: rsi[i] })).filter(d => d.value !== null)
+                data: times.map((t, i) => ({ time: t, value: rsi[i] })).filter(d => d.value !== null && isFinite(d.value))
             });
         }
 
-        this.chart.setIndicators(indicators);
+        // MACD (12, 26, 9) Sub-Pane
+        if (document.getElementById('ind-macd')?.checked && closes.length >= 26) {
+            const eFast = this.calcEma(closes, 12);
+            const eSlow = this.calcEma(closes, 26);
+            const macdSeries = [];
+            const validMacd = [];
+            const validTimes = [];
+            for (let i = 0; i < closes.length; i++) {
+                if (eFast[i] !== null && eSlow[i] !== null) {
+                    const mv = eFast[i] - eSlow[i];
+                    macdSeries.push({ time: times[i], value: mv });
+                    validMacd.push(mv);
+                    validTimes.push(times[i]);
+                }
+            }
+            const sigArr = this.calcEma(validMacd, 9);
+            const sigSeries = [];
+            const histSeries = [];
+            for (let i = 0; i < validMacd.length; i++) {
+                if (sigArr[i] !== null) {
+                    sigSeries.push({ time: validTimes[i], value: sigArr[i] });
+                    histSeries.push({ time: validTimes[i], value: validMacd[i] - sigArr[i] });
+                }
+            }
+            indicators.push({ title: 'MACD Hist', style: 'histogram', pane: 'macd', data: histSeries });
+            indicators.push({ title: 'MACD', color: '#00f0ff', linewidth: 1.5, pane: 'macd', data: macdSeries });
+            indicators.push({ title: 'Signal', color: '#ff9800', linewidth: 1.5, pane: 'macd', data: sigSeries });
+        }
+
+        if (typeof this.chart.setQuickIndicators === 'function') {
+            this.chart.setQuickIndicators(indicators);
+        } else {
+            this.chart.setIndicators(indicators);
+        }
+        if (this.panes) {
+            this.panes.forEach((p, id) => {
+                if (id !== 0 && p.chart && typeof p.chart.setQuickIndicators === 'function') {
+                    p.chart.setQuickIndicators(indicators);
+                }
+            });
+        }
     }
 
     calcEma(data, period) {
+        const n = data.length;
+        const res = new Array(n).fill(null);
+        if (!n || period <= 0) return res;
+        if (n < period) {
+            const k = 2 / (n + 1);
+            res[0] = data[0];
+            for (let i = 1; i < n; i++) res[i] = (data[i] * k) + (res[i - 1] * (1 - k));
+            return res;
+        }
         const k = 2 / (period + 1);
-        const res = [data[0]];
-        for (let i = 1; i < data.length; i++) {
-            res.push((data[i] * k) + (res[i - 1] * (1 - k)));
+        let sum = 0;
+        for (let i = 0; i < period; i++) sum += (data[i] || 0);
+        res[period - 1] = sum / period;
+        for (let i = period; i < n; i++) {
+            res[i] = ((data[i] || 0) - res[i - 1]) * k + res[i - 1];
         }
         return res;
     }
@@ -3700,12 +3930,377 @@ class OpenChartApp {
         });
         if (this.cleanSymbol(this.currentPair) === cleanIncoming) {
             this.updateTickerHeader();
+            if (!this._lastIndRefresh || Date.now() - this._lastIndRefresh > 2500) {
+                this._lastIndRefresh = Date.now();
+                this.applyQuickIndicators();
+            }
         }
         if (!this.lastTrendUpdate || Date.now() - this.lastTrendUpdate > 4000) {
             this.lastTrendUpdate = Date.now();
             this.renderPaneTrendBar(0);
             this.panes.forEach((_, id) => this.renderPaneTrendBar(id));
         }
+    }
+
+    /* =========================================================================
+       MULTI-STRATEGY COIN & OPTIONS SCANNER (CALL / PUT SIGNALS)
+       ========================================================================= */
+    setupStrategyScanner() {
+        const trigger = document.getElementById('btn-open-scanner');
+        const modal = document.getElementById('strategy-scanner-modal');
+        const backdrop = document.getElementById('scanner-backdrop');
+        const closeBtn = document.getElementById('btn-close-scanner');
+        const runBtn = document.getElementById('btn-run-scanner');
+        const tfSelect = document.getElementById('scanner-tf-select');
+        const filterTabs = document.getElementById('scanner-filter-tabs');
+        const searchInp = document.getElementById('scanner-search-input');
+
+        if (!trigger || !modal) return;
+
+        this.scannerFilter = 'all';
+        this.scannerResults = [];
+
+        const closeModal = () => modal.classList.add('hidden');
+        trigger.addEventListener('click', () => {
+            modal.classList.remove('hidden');
+            const badge = document.getElementById('scanner-mode-badge');
+            if (badge) badge.textContent = this.marketMode === 'ind' ? 'NSE / BSE F&O' : 'CRYPTO (COINDCX / BINANCE)';
+            this.runStrategyScan();
+        });
+        if (backdrop) backdrop.addEventListener('click', closeModal);
+        if (closeBtn) closeBtn.addEventListener('click', closeModal);
+        if (runBtn) runBtn.addEventListener('click', () => this.runStrategyScan());
+        if (tfSelect) tfSelect.addEventListener('change', () => this.runStrategyScan());
+
+        if (filterTabs) {
+            filterTabs.querySelectorAll('.trend-tab-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    filterTabs.querySelectorAll('.trend-tab-btn').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    this.scannerFilter = btn.dataset.sfilter || 'all';
+                    this.renderScannerTable();
+                });
+            });
+        }
+        if (searchInp) {
+            searchInp.addEventListener('input', () => this.renderScannerTable());
+        }
+    }
+
+    async runStrategyScan() {
+        const tf = document.getElementById('scanner-tf-select')?.value || '15m';
+        const progWrap = document.getElementById('scanner-progress-wrap');
+        const progBar = document.getElementById('scanner-progress-bar');
+        const progTxt = document.getElementById('scanner-progress-text');
+        const tbody = document.getElementById('scanner-table-tbody');
+
+        if (progWrap) progWrap.classList.remove('hidden');
+        if (progBar) progBar.style.width = '20%';
+        if (progTxt) progTxt.textContent = `Scanning all ${this.marketMode === 'ind' ? 'NSE / BSE' : 'CoinDCX / Binance'} symbols on ${tf}...`;
+        if (tbody) tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:30px; color:#00f0ff;">⏳ Running 5 institutional strategies across live markets...</td></tr>`;
+
+        // 1. Try local FastAPI scanner endpoint first
+        try {
+            const ctrl = new AbortController();
+            const tm = setTimeout(() => ctrl.abort(), 8000);
+            const resp = await fetch(`/api/scanner/scan?mode=${this.marketMode}&interval=${tf}&limit=28`, { signal: ctrl.signal });
+            clearTimeout(tm);
+            if (resp.ok) {
+                const payload = await resp.json();
+                if (payload && Array.isArray(payload.recommendations) && payload.recommendations.length) {
+                    this.scannerResults = payload.recommendations;
+                    if (progBar) progBar.style.width = '100%';
+                    setTimeout(() => progWrap?.classList.add('hidden'), 350);
+                    this.renderScannerTable();
+                    return;
+                }
+            }
+        } catch (e) {}
+
+        // 2. Standalone Client-Side Parallel Scanner (GitHub Pages & Browser Live Fetch)
+        const listSource = (this.marketMode === 'ind' ? (this.indianMarkets || this.getDefaultIndianMarkets()) : (this.cryptoMarkets || this.markets || [])).slice(0, 28);
+        const results = [];
+        const batchSize = 5;
+
+        for (let i = 0; i < listSource.length; i += batchSize) {
+            const batch = listSource.slice(i, i + batchSize);
+            const batchRes = await Promise.all(batch.map(async m => {
+                const sym = m.symbol;
+                const clean = this.cleanSymbol(sym);
+                let candles = null;
+                if (this.marketMode === 'ind') {
+                    candles = await this.fetchIndianRelayCandles(clean, tf);
+                    if (!candles || candles.length < 35) {
+                        const baseP = parseFloat(m.last_price) || this.getKnownBasePrice(sym);
+                        candles = this.generateFallbackCandles(sym, baseP);
+                    }
+                } else {
+                    try {
+                        const r = await fetch(`https://api.binance.com/api/v3/klines?symbol=${clean}USDT&interval=${tf}&limit=120`);
+                        if (r.ok) {
+                            const raw = await r.json();
+                            if (Array.isArray(raw) && raw.length >= 35) {
+                                candles = raw.map(k => ({
+                                    time: k[0], open: +k[1], high: +k[2], low: +k[3], close: +k[4], volume: +k[5]
+                                }));
+                            }
+                        }
+                    } catch (err) {}
+                    if (!candles || candles.length < 35) {
+                        const baseP = parseFloat(m.last_price) || this.getKnownBasePrice(sym);
+                        candles = this.generateFallbackCandles(sym, baseP);
+                    }
+                }
+                return this.evaluateCandlesStrategiesClient(sym, m.name || clean, candles);
+            }));
+
+            batchRes.forEach(item => { if (item) results.push(item); });
+            const pct = Math.min(100, Math.round(((i + batch.length) / Math.max(1, listSource.length)) * 100));
+            if (progBar) progBar.style.width = `${pct}%`;
+            if (progTxt) progTxt.textContent = `Scanned ${Math.min(i + batch.length, listSource.length)}/${listSource.length} assets (${pct}%)`;
+        }
+
+        results.sort((a, b) => (b.confidence - a.confidence) || (b.score_diff - a.score_diff));
+        this.scannerResults = results;
+        setTimeout(() => progWrap?.classList.add('hidden'), 350);
+        this.renderScannerTable();
+    }
+
+    evaluateCandlesStrategiesClient(symbol, displayName, candles) {
+        if (!candles || candles.length < 35) return null;
+        const n = candles.length;
+        const closes = candles.map(c => +c.close);
+        const highs = candles.map(c => +c.high);
+        const lows = candles.map(c => +c.low);
+        const vols = candles.map(c => +(c.volume || 1));
+        const lastC = closes[n - 1], prevC = closes[n - 2];
+        if (!lastC || lastC <= 0) return null;
+
+        const ema9 = this.calcEma(closes, 9);
+        const ema21 = this.calcEma(closes, 21);
+        const ema50 = this.calcEma(closes, 50);
+        const rsi = this.calcRsi(closes, 14);
+        const curRsi = rsi[n - 1] !== null ? rsi[n - 1] : 50;
+
+        // Supertrend (10, 3) & ATR(14)
+        const atr = ClientPineEngine.calculateATR(highs, lows, closes, 14);
+        const stRes = ClientPineEngine.calculateSupertrend(highs, lows, closes, 10, 3.0);
+        const bbRes = ClientPineEngine.calculateBollinger(closes, 20, 2.0);
+        const macdRes = ClientPineEngine.calculateMACD(closes, 12, 26, 9);
+        const vwapArr = ClientPineEngine.calculateVWAP(highs.slice(-40), lows.slice(-40), closes.slice(-40), vols.slice(-40));
+        const curVwap = vwapArr[vwapArr.length - 1] || lastC;
+
+        let bull = 0, bear = 0;
+        const hits = [];
+
+        // 1. EMA Ribbon
+        if (ema9[n - 1] !== null && ema21[n - 1] !== null) {
+            if (ema9[n - 2] <= ema21[n - 2] && ema9[n - 1] > ema21[n - 1]) { bull += 28; hits.push('EMA 9/21 Golden Cross'); }
+            else if (ema9[n - 2] >= ema21[n - 2] && ema9[n - 1] < ema21[n - 1]) { bear += 28; hits.push('EMA 9/21 Death Cross'); }
+            else if (ema9[n - 1] > ema21[n - 1] && (!ema50[n - 1] || ema21[n - 1] > ema50[n - 1])) { bull += 18; hits.push('EMA Bullish Trend'); }
+            else if (ema9[n - 1] < ema21[n - 1] && (!ema50[n - 1] || ema21[n - 1] < ema50[n - 1])) { bear += 18; hits.push('EMA Bearish Trend'); }
+        }
+        // 2. Supertrend
+        const dir = stRes.direction;
+        if (dir[n - 2] === -1 && dir[n - 1] === 1) { bull += 28; hits.push('Supertrend Bull Flip'); }
+        else if (dir[n - 2] === 1 && dir[n - 1] === -1) { bear += 28; hits.push('Supertrend Bear Flip'); }
+        else if (dir[n - 1] === 1) { bull += 14; hits.push('Supertrend Support'); }
+        else { bear += 14; hits.push('Supertrend Resistance'); }
+
+        // 3. BB + RSI
+        const bbUp = bbRes.upper[n - 1], bbLo = bbRes.lower[n - 1], bbMid = bbRes.basis[n - 1];
+        if (bbLo && bbUp) {
+            if (lastC <= bbLo * 1.003 && curRsi < 38) { bull += 24; hits.push('BB Oversold Reversal'); }
+            else if (lastC >= bbUp * 0.997 && curRsi > 62) { bear += 24; hits.push('BB Overbought Rejection'); }
+            else if (lastC > bbMid && curRsi >= 50) bull += 10;
+            else if (lastC < bbMid && curRsi <= 50) bear += 10;
+        }
+        // 4. MACD + VWAP
+        const h1 = macdRes.histLine[n - 1], h0 = macdRes.histLine[n - 2];
+        if (h1 !== null && h0 !== null) {
+            if (h0 <= 0 && h1 > 0 && lastC >= curVwap * 0.998) { bull += 24; hits.push('MACD + VWAP Bull Cross'); }
+            else if (h0 >= 0 && h1 < 0 && lastC <= curVwap * 1.002) { bear += 24; hits.push('MACD + VWAP Bear Cross'); }
+            else if (h1 > 0 && lastC > curVwap) bull += 12;
+            else if (h1 < 0 && lastC < curVwap) bear += 12;
+        }
+        // 5. Liquidity Sweep
+        const prevHi = Math.max(...highs.slice(Math.max(0, n - 22), n - 1));
+        const prevLo = Math.min(...lows.slice(Math.max(0, n - 22), n - 1));
+        if (lows[n - 1] < prevLo && lastC > prevLo) { bull += 26; hits.push('SSL Liquidity Sweep'); }
+        else if (highs[n - 1] > prevHi && lastC < prevHi) { bear += 26; hits.push('BSL Liquidity Sweep'); }
+
+        const isCall = bull >= bear;
+        const confidence = Math.min(98, Math.max(35, Math.round(isCall ? bull : bear)));
+        const curAtr = atr[n - 1] || lastC * 0.012;
+        const slDist = Math.max(curAtr * 1.5, lastC * 0.004);
+        const tpDist = slDist * 2.1;
+
+        let option_rec = null;
+        if (this.marketMode === 'ind') {
+            const clean = this.cleanSymbol(symbol);
+            const step = (clean === 'BANKNIFTY' || clean === 'SENSEX' || clean === 'BANKEX') ? 100 : (clean === 'NIFTY' || clean === 'FINNIFTY' ? 50 : (lastC > 1000 ? 20 : 5));
+            const strike = Math.round(lastC / step) * step;
+            const optType = isCall ? 'CE' : 'PE';
+            const g = this.calcOptionGreeks(lastC, strike, 4, 0.15);
+            const ltp = parseFloat(((optType === 'CE' ? g.call.price : g.put.price)).toFixed(2));
+            option_rec = {
+                contract: `${clean} ${strike} ${optType}`,
+                strike,
+                type: optType,
+                ltp,
+                tp: parseFloat((ltp + Math.max(10, ltp * 0.25)).toFixed(2)),
+                sl: parseFloat(Math.max(0.5, ltp - Math.max(8, ltp * 0.15)).toFixed(2))
+            };
+        }
+
+        return {
+            symbol,
+            display_name: displayName,
+            signal: isCall ? 'CALL' : 'PUT',
+            action: isCall ? 'BUY / CALL' : 'SELL / PUT',
+            confidence,
+            score_diff: Math.abs(bull - bear),
+            strategies: hits.length ? hits.slice(0, 3) : [`Trend Bias (${isCall ? 'CALL' : 'PUT'})`],
+            price: lastC,
+            change_pct: prevC ? parseFloat((((lastC - prevC) / prevC) * 100).toFixed(2)) : 0,
+            rsi: parseFloat(curRsi.toFixed(1)),
+            target: isCall ? (lastC + tpDist) : Math.max(0.00001, lastC - tpDist),
+            stop_loss: isCall ? Math.max(0.00001, lastC - slDist) : (lastC + slDist),
+            rr: '2.1 : 1',
+            option_rec
+        };
+    }
+
+    renderScannerTable() {
+        const tbody = document.getElementById('scanner-table-tbody');
+        if (!tbody) return;
+        const all = this.scannerResults || [];
+
+        const callsCount = all.filter(r => r.signal === 'CALL').length;
+        const putsCount = all.filter(r => r.signal === 'PUT').length;
+        const topPick = all[0];
+
+        const totEl = document.getElementById('scan-stat-total');
+        const cEl = document.getElementById('scan-stat-calls');
+        const pEl = document.getElementById('scan-stat-puts');
+        const topEl = document.getElementById('scan-stat-top');
+        if (totEl) totEl.textContent = all.length;
+        if (cEl) cEl.textContent = callsCount;
+        if (pEl) pEl.textContent = putsCount;
+        if (topEl) topEl.textContent = topPick ? `${this.cleanSymbol(topPick.symbol)} (${topPick.signal} ${topPick.confidence}%)` : '--';
+
+        const q = (document.getElementById('scanner-search-input')?.value || '').trim().toUpperCase();
+        let filtered = all;
+        if (this.scannerFilter === 'CALL') filtered = all.filter(r => r.signal === 'CALL');
+        else if (this.scannerFilter === 'PUT') filtered = all.filter(r => r.signal === 'PUT');
+        else if (this.scannerFilter === 'high') filtered = all.filter(r => r.confidence >= 70);
+
+        if (q) {
+            filtered = filtered.filter(r =>
+                r.symbol.toUpperCase().includes(q) ||
+                (r.display_name || '').toUpperCase().includes(q) ||
+                (r.strategies || []).some(s => s.toUpperCase().includes(q))
+            );
+        }
+
+        if (!filtered.length) {
+            tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:28px; color:var(--text-secondary);">No setups match this filter. Try "All Setups" or Rescan.</td></tr>`;
+            return;
+        }
+
+        const curSym = this.currencySymbol || '$';
+        tbody.innerHTML = filtered.map(item => {
+            const isCall = item.signal === 'CALL';
+            const clean = this.cleanSymbol(item.symbol);
+            const stratsHtml = (item.strategies || []).map(s => `<span class="strat-pill">${s}</span>`).join('');
+            const optHtml = item.option_rec
+                ? `<div class="opt-strike-hint">⚡ ${item.option_rec.contract} @ ₹${item.option_rec.ltp}</div>`
+                : '';
+
+            return `
+                <tr>
+                    <td>
+                        <div class="trend-name-group">
+                            <span class="trend-sym-code">${clean}</span>
+                            <span class="trend-sector-sub">${item.display_name || clean}</span>
+                        </div>
+                    </td>
+                    <td>
+                        <span class="signal-pill ${isCall ? 'call' : 'put'}">${isCall ? '🟢 BUY CALL' : '🔴 BUY PUT'}</span>
+                        ${optHtml}
+                    </td>
+                    <td class="text-center">
+                        <span class="conf-badge ${item.confidence >= 70 ? 'high' : ''}">${item.confidence}%</span>
+                    </td>
+                    <td>${stratsHtml}</td>
+                    <td class="text-right"><b>${curSym}${this.formatPrice(item.price)}</b></td>
+                    <td class="text-right bullish">${curSym}${this.formatPrice(item.target)}</td>
+                    <td class="text-right bearish">${curSym}${this.formatPrice(item.stop_loss)}</td>
+                    <td class="text-center">${item.rsi}</td>
+                    <td class="text-center">
+                        <div class="scanner-actions-cell">
+                            <button class="btn-open-chart btn-scan-chart" data-sym="${item.symbol}">📈 Chart</button>
+                            <button class="btn-opt-quick-buy ${isCall ? 'buy-ce' : 'buy-pe'} btn-scan-trade"
+                                data-sym="${item.symbol}" data-signal="${item.signal}" data-price="${item.price}"
+                                data-tp="${item.target}" data-sl="${item.stop_loss}"
+                                data-contract="${item.option_rec ? item.option_rec.contract : ''}"
+                                data-optltp="${item.option_rec ? item.option_rec.ltp : 0}">
+                                ⚡ ${isCall ? 'CALL' : 'PUT'}
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+
+        tbody.querySelectorAll('.btn-scan-chart').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const sym = btn.dataset.sym;
+                document.getElementById('strategy-scanner-modal')?.classList.add('hidden');
+                this.currentPair = sym;
+                window.currentPair = sym;
+                const tf = document.getElementById('scanner-tf-select')?.value;
+                if (tf) this.switchTimeframe(tf);
+                else this.onMarketChange();
+            });
+        });
+
+        tbody.querySelectorAll('.btn-scan-trade').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const sym = btn.dataset.sym;
+                const sig = btn.dataset.signal;
+                const contract = btn.dataset.contract;
+                const optLtp = parseFloat(btn.dataset.optltp);
+                const price = parseFloat(btn.dataset.price);
+                const tp = parseFloat(btn.dataset.tp);
+                const sl = parseFloat(btn.dataset.sl);
+
+                if (this.marketMode === 'ind' && contract && optLtp > 0) {
+                    const tradeSym = contract;
+                    await this.placeOrder({
+                        symbol: tradeSym,
+                        side: 'buy',
+                        order_type: 'market',
+                        quantity: 25,
+                        price: optLtp,
+                        take_profit: parseFloat((optLtp + Math.max(10, optLtp * 0.25)).toFixed(2)),
+                        stop_loss: parseFloat(Math.max(0.5, optLtp - Math.max(8, optLtp * 0.15)).toFixed(2)),
+                        source: 'strategy_scanner'
+                    });
+                } else {
+                    await this.placeOrder({
+                        symbol: sym,
+                        side: sig === 'CALL' ? 'buy' : 'sell',
+                        order_type: 'market',
+                        quantity: 0.1,
+                        price: price,
+                        take_profit: tp,
+                        stop_loss: sl,
+                        source: 'strategy_scanner'
+                    });
+                }
+            });
+        });
     }
 
     startWatchdog() {
