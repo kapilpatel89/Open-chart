@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Open Chart - 3D Candlestick Trading Terminal (Alternative to TradingView)</title>
-    <link rel="stylesheet" href="style.css?v=2.4.0">
+    <link rel="stylesheet" href="style.css?v=2.5.0">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
@@ -184,6 +184,11 @@
             <div class="chart-wrapper">
                 <div id="multi-chart-grid" class="multi-chart-grid layout-1">
                     <div class="chart-pane active" id="pane-0" data-pane-id="0">
+                        <div class="chart-quick-trade" id="chart-quick-trade">
+                            <button type="button" class="cqt-btn sell" id="btn-cqt-sell" title="1-Click Market Sell / Short on Chart">SELL</button>
+                            <input type="number" class="cqt-qty" id="cqt-qty" value="0.1" step="0.01" min="0.001" title="Order Quantity">
+                            <button type="button" class="cqt-btn buy" id="btn-cqt-buy" title="1-Click Market Buy / Long on Chart">BUY</button>
+                        </div>
                         <div class="pane-tf-trend-bar" id="pane-tf-trend-0"></div>
                         <canvas id="chart-canvas"></canvas>
                     </div>
@@ -475,11 +480,11 @@
     <!-- Custom Right-Click Context Menu (Global for all chart panes) -->
     <div id="chart-context-menu" class="context-menu">
         <div class="context-header" id="ctx-header-title">BTC / USDT</div>
-        <div class="context-item" id="ctx-limit-buy"><span>🟢 Buy Limit</span> <b>$<span class="ctx-price">0.00</span></b></div>
-        <div class="context-item" id="ctx-limit-sell"><span>🔴 Sell Limit</span> <b>$<span class="ctx-price">0.00</span></b></div>
+        <div class="context-item" id="ctx-limit-buy"><span>🟢 Buy Limit</span> <b><span class="ctx-cur">$</span><span class="ctx-price">0.00</span></b></div>
+        <div class="context-item" id="ctx-limit-sell"><span>🔴 Sell Limit</span> <b><span class="ctx-cur">$</span><span class="ctx-price">0.00</span></b></div>
         <div class="context-divider"></div>
-        <div class="context-item" id="ctx-set-tp"><span>🎯 Set Take Profit</span> <b>$<span class="ctx-price">0.00</span></b></div>
-        <div class="context-item" id="ctx-set-sl"><span>🛑 Set Stop Loss</span> <b>$<span class="ctx-price">0.00</span></b></div>
+        <div class="context-item" id="ctx-set-tp"><span>🎯 Set Take Profit</span> <b><span class="ctx-cur">$</span><span class="ctx-price">0.00</span></b></div>
+        <div class="context-item" id="ctx-set-sl"><span>🛑 Set Stop Loss</span> <b><span class="ctx-cur">$</span><span class="ctx-price">0.00</span></b></div>
         <div class="context-divider"></div>
         <div class="context-item" id="ctx-reset-chart"><span>⟲ Reset & Auto Scale</span></div>
         <div class="context-item" id="ctx-center-live"><span>➜ Jump to Live Candle</span></div>
@@ -866,8 +871,8 @@
     <div id="chart-toast-container" class="chart-toast-container"></div>
 
     <!-- Scripts -->
-    <script src="chart3d.js?v=2.4.0"></script>
-    <script src="pine_editor.js?v=2.4.0"></script>
-    <script src="app.js?v=2.4.0"></script>
+    <script src="chart3d.js?v=2.5.0"></script>
+    <script src="pine_editor.js?v=2.5.0"></script>
+    <script src="app.js?v=2.5.0"></script>
 </body>
 </html>

@@ -47,9 +47,7 @@ class OpenChartApp {
         // 1. Initialize Main Candlestick Chart (Pane 0)
         this.chart = new OpenChart3D('chart-canvas', { candleStyle: this.currentCandleStyle, timeframe: this.currentInterval });
         
-        this.chart.onOrderUpdate = (itemId, newTp, newSl) => {
-            this.updateOrderTpSl(itemId, newTp, newSl);
-        };
+        this.bindChartOrderCallbacks(this.chart);
 
         this.attachChartContextMenu(this.chart, 0);
 
@@ -79,6 +77,7 @@ class OpenChartApp {
 
         // 3. Setup UI Event Listeners
         this.bindEvents();
+        this.bindQuickChartTradeBar();
 
         // 4. Load Markets & Historical Candles
         await this.loadMarkets();
@@ -350,35 +349,21 @@ class OpenChartApp {
 
         submitBtn.addEventListener('click', () => this.handleOrderSubmit());
 
-        // Context Menu Action Handlers (All Charts Support)
+        // Context Menu Action Handlers (All Charts Support - Direct On-Chart Execution)
         document.getElementById('ctx-limit-buy')?.addEventListener('click', () => {
-            this.setupLimitOrder('buy', this.activeContextPrice);
+            this.placeLimitOrderFromChart('buy', this.activeContextPrice);
             this.hideContextMenu();
         });
         document.getElementById('ctx-limit-sell')?.addEventListener('click', () => {
-            this.setupLimitOrder('sell', this.activeContextPrice);
+            this.placeLimitOrderFromChart('sell', this.activeContextPrice);
             this.hideContextMenu();
         });
         document.getElementById('ctx-set-tp')?.addEventListener('click', () => {
-            const sidebar = document.getElementById('sidebar');
-            if (sidebar) sidebar.classList.remove('hidden');
-            document.querySelector('[data-tab="tab-trade"]')?.click();
-            const tpEl = document.getElementById('order-tp');
-            if (tpEl) tpEl.value = this.formatPrice(this.activeContextPrice);
-            const chkTp = document.getElementById('check-tp');
-            if (chkTp) chkTp.checked = true;
-            this.recalculateTpSlPreviews();
+            this.applyContextPriceAsTpSl('tp', this.activeContextPrice);
             this.hideContextMenu();
         });
         document.getElementById('ctx-set-sl')?.addEventListener('click', () => {
-            const sidebar = document.getElementById('sidebar');
-            if (sidebar) sidebar.classList.remove('hidden');
-            document.querySelector('[data-tab="tab-trade"]')?.click();
-            const slEl = document.getElementById('order-sl');
-            if (slEl) slEl.value = this.formatPrice(this.activeContextPrice);
-            const chkSl = document.getElementById('check-sl');
-            if (chkSl) chkSl.checked = true;
-            this.recalculateTpSlPreviews();
+            this.applyContextPriceAsTpSl('sl', this.activeContextPrice);
             this.hideContextMenu();
         });
         document.getElementById('ctx-reset-chart')?.addEventListener('click', () => {
@@ -1265,11 +1250,14 @@ class OpenChartApp {
         }
 
         window.currentPair = this.currentPair;
+        const cqtQty = document.getElementById('cqt-qty');
+        if (cqtQty) cqtQty.value = mode === 'ind' ? '50' : '0.1';
         this.populateCoinDropdown(this.markets);
         this.updateSymbolTriggerDisplay();
         if (mode === 'ind') {
             this.syncIndianLiveMarkets().catch(() => {});
         }
+        await this.loadPortfolio();
         await this.onMarketChange();
     }
 
@@ -2513,9 +2501,14 @@ class OpenChartApp {
         }
 
         const clean = this.cleanSymbol(rawPair);
-        // 1. Look in markets list
-        if (this.markets && this.markets.length) {
-            const m = this.markets.find(x => this.cleanSymbol(x.symbol) === clean || (x.name && x.name.toUpperCase().includes(clean)));
+        // 1. Look across all market lists (active, crypto, Indian) using exact symbol match
+        const allLists = [this.markets, this.cryptoMarkets, this.indianMarkets];
+        for (const list of allLists) {
+            if (!list || !list.length) continue;
+            const m = list.find(x =>
+                (x.symbol && x.symbol.toUpperCase() === rawPair.toUpperCase()) ||
+                this.cleanSymbol(x.symbol) === clean
+            );
             if (m && parseFloat(m.last_price) > 0) {
                 return parseFloat(m.last_price);
             }
@@ -2742,6 +2735,33 @@ class OpenChartApp {
                 } catch (mErr) {
                     console.warn("Direct MEXC fallback failed:", mErr);
                 }
+            }
+
+            // 2b-ii. Tertiary Fallback: Direct Bybit Spot Open CORS API (covers CoinDCX-listed altcoins)
+            if ((!candles || !candles.length) && this.marketMode !== 'ind') {
+                const cleanSym = this.getCleanSymbol() + 'USDT';
+                const bybitMap = { '1m': '1', '5m': '5', '15m': '15', '30m': '30', '1h': '60', '4h': '240', '1d': 'D' };
+                const bybitIv = bybitMap[(this.currentInterval || '15m').toLowerCase()] || '15';
+                try {
+                    const bbCtrl = new AbortController();
+                    const bbTm = setTimeout(() => bbCtrl.abort(), 3000);
+                    const bbResp = await fetch(`https://api.bybit.com/v5/market/kline?category=spot&symbol=${cleanSym}&interval=${bybitIv}&limit=200`, { signal: bbCtrl.signal });
+                    clearTimeout(bbTm);
+                    if (bbResp.ok) {
+                        const json = await bbResp.json();
+                        const list = json?.result?.list;
+                        if (Array.isArray(list) && list.length) {
+                            candles = list.slice().reverse().map(k => ({
+                                time: parseInt(k[0], 10),
+                                open: parseFloat(k[1]),
+                                high: parseFloat(k[2]),
+                                low: parseFloat(k[3]),
+                                close: parseFloat(k[4]),
+                                volume: parseFloat(k[5] || 0)
+                            }));
+                        }
+                    }
+                } catch (bbErr) {}
             }
 
             // 2c. Indian Market Standalone Relay Fallback (NSE & BSE real candles when GitHub Pages / server offline)
@@ -3055,97 +3075,168 @@ class OpenChartApp {
         return res;
     }
 
+    getPaperStorageKey() {
+        return `openchart_paper_portfolio_${this.marketMode || 'crypto'}`;
+    }
+
+    getDefaultPaperPortfolio() {
+        const initBal = this.marketMode === 'ind' ? 1000000.0 : 10000.0;
+        return {
+            balance: initBal,
+            equity: initBal,
+            open_positions: [],
+            open_orders: [],
+            trade_history: []
+        };
+    }
+
+    savePaperPortfolio() {
+        if (this.paperModeBackend || !this.portfolio) return;
+        try {
+            localStorage.setItem(this.getPaperStorageKey(), JSON.stringify(this.portfolio));
+        } catch (e) {}
+    }
+
+    recalcPaperPortfolioMetrics() {
+        if (!this.portfolio) return;
+        let totalU = 0;
+        (this.portfolio.open_positions || []).forEach(p => {
+            const cur = parseFloat(p.current_price || p.entry_price || 0);
+            const ent = parseFloat(p.entry_price || 0);
+            const qty = parseFloat(p.quantity || 0);
+            const diff = p.side === 'buy' ? (cur - ent) : (ent - cur);
+            p.unrealized_pnl = diff * qty;
+            p.unrealized_pnl_pct = ent > 0 ? (diff / ent) * 100 : 0;
+            totalU += p.unrealized_pnl;
+        });
+        this.portfolio.equity = (parseFloat(this.portfolio.balance) || 0) + totalU;
+    }
+
     async loadPortfolio() {
         try {
-            const resp = await fetch('/api/portfolio');
-            const data = await resp.json();
-            this.portfolio = data;
-            this.updatePortfolioUI();
+            const ctrl = new AbortController();
+            const tm = setTimeout(() => ctrl.abort(), 2000);
+            const resp = await fetch('/api/portfolio', { signal: ctrl.signal });
+            clearTimeout(tm);
+            if (resp.ok) {
+                const data = await resp.json();
+                if (data && typeof data.equity !== 'undefined') {
+                    this.paperModeBackend = true;
+                    this.portfolio = data;
+                    this.updatePortfolioUI();
+                    return;
+                }
+            }
         } catch (e) {
-            console.error("Error loading portfolio:", e);
+            // Server offline / static GitHub Pages mode -> Standalone Paper Portfolio
         }
+
+        this.paperModeBackend = false;
+        try {
+            const saved = localStorage.getItem(this.getPaperStorageKey());
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                if (parsed && Array.isArray(parsed.open_positions)) {
+                    this.portfolio = parsed;
+                    this.recalcPaperPortfolioMetrics();
+                    this.updatePortfolioUI();
+                    return;
+                }
+            }
+        } catch (e) {}
+
+        this.portfolio = this.getDefaultPaperPortfolio();
+        this.savePaperPortfolio();
+        this.updatePortfolioUI();
     }
 
     updatePortfolioUI() {
         if (!this.portfolio) return;
+        const curSym = this.currencySymbol || '$';
 
-        document.getElementById('account-equity').textContent = `$${this.portfolio.equity.toLocaleString()}`;
-        this.chart.setOrders(this.portfolio.open_orders, this.portfolio.open_positions);
+        const eqEl = document.getElementById('account-equity');
+        if (eqEl) eqEl.textContent = `${curSym}${Number(this.portfolio.equity || 0).toLocaleString(this.marketMode === 'ind' ? 'en-IN' : 'en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-        document.getElementById('badge-positions').textContent = this.portfolio.open_positions.length;
-        document.getElementById('badge-orders').textContent = this.portfolio.open_orders.length;
+        const orders = this.portfolio.open_orders || [];
+        const positions = this.portfolio.open_positions || [];
+        if (this.chart) this.chart.setOrders(orders, positions);
+        this.panes?.forEach(p => { if (p.chart && p.chart !== this.chart) p.chart.setOrders(orders, positions); });
+
+        const bp = document.getElementById('badge-positions');
+        const bo = document.getElementById('badge-orders');
+        if (bp) bp.textContent = positions.length;
+        if (bo) bo.textContent = orders.length;
 
         const posTbody = document.getElementById('positions-tbody');
-        if (this.portfolio.open_positions.length === 0) {
-            posTbody.innerHTML = '<tr><td colspan="9" class="empty-table">No open positions. Place an order or run a Pine Script strategy.</td></tr>';
-        } else {
-            posTbody.innerHTML = this.portfolio.open_positions.map(p => {
-                const isPos = p.unrealized_pnl >= 0;
-                return `
-                    <tr>
-                        <td><b>${p.symbol}</b></td>
-                        <td class="${p.side === 'buy' ? 'bullish' : 'bearish'}"><b>${p.side.toUpperCase()}</b></td>
-                        <td>${p.quantity}</td>
-                        <td>$${p.entry_price.toFixed(2)}</td>
-                        <td>$${p.current_price.toFixed(2)}</td>
-                        <td class="bullish">${p.take_profit ? '$' + p.take_profit.toFixed(2) : '--'}</td>
-                        <td class="bearish">${p.stop_loss ? '$' + p.stop_loss.toFixed(2) : '--'}</td>
-                        <td class="${isPos ? 'bullish' : 'bearish'}"><b>${isPos ? '+' : ''}$${p.unrealized_pnl.toFixed(2)} (${p.unrealized_pnl_pct.toFixed(2)}%)</b></td>
-                        <td><button class="btn-sm-danger" onclick="window.app.closePosition('${p.id}', '${p.symbol}')">Market Close</button></td>
-                    </tr>
-                `;
-            }).join('');
+        if (posTbody) {
+            if (positions.length === 0) {
+                posTbody.innerHTML = '<tr><td colspan="9" class="empty-table">No open positions. Place an order on chart or from trade panel.</td></tr>';
+            } else {
+                posTbody.innerHTML = positions.map(p => {
+                    const isPos = (p.unrealized_pnl || 0) >= 0;
+                    return `
+                        <tr>
+                            <td><b>${p.symbol}</b></td>
+                            <td class="${p.side === 'buy' ? 'bullish' : 'bearish'}"><b>${p.side.toUpperCase()}</b></td>
+                            <td>${p.quantity}</td>
+                            <td>${this.formatPrice(p.entry_price, true)}</td>
+                            <td>${this.formatPrice(p.current_price, true)}</td>
+                            <td class="bullish">${p.take_profit ? this.formatPrice(p.take_profit, true) : '--'}</td>
+                            <td class="bearish">${p.stop_loss ? this.formatPrice(p.stop_loss, true) : '--'}</td>
+                            <td class="${isPos ? 'bullish' : 'bearish'}"><b>${isPos ? '+' : '-'}${curSym}${Math.abs(p.unrealized_pnl || 0).toFixed(2)} (${(p.unrealized_pnl_pct || 0).toFixed(2)}%)</b></td>
+                            <td><button class="btn-sm-danger" onclick="window.app.closePosition('${p.id}', '${p.symbol}')">Close</button></td>
+                        </tr>
+                    `;
+                }).join('');
+            }
         }
 
         const ordTbody = document.getElementById('orders-tbody');
-        if (this.portfolio.open_orders.length === 0) {
-            ordTbody.innerHTML = '<tr><td colspan="10" class="empty-table">No pending open orders.</td></tr>';
-        } else {
-            ordTbody.innerHTML = this.portfolio.open_orders.map(o => `
-                <tr>
-                    <td>${o.id}</td>
-                    <td><b>${o.symbol}</b></td>
-                    <td>${o.type.toUpperCase()}</td>
-                    <td class="${o.side === 'buy' ? 'bullish' : 'bearish'}"><b>${o.side.toUpperCase()}</b></td>
-                    <td>${o.quantity}</td>
-                    <td>${o.price ? '$' + o.price.toFixed(2) : 'MARKET'}</td>
-                    <td class="bullish">${o.take_profit ? '$' + o.take_profit.toFixed(2) : '--'}</td>
-                    <td class="bearish">${o.stop_loss ? '$' + o.stop_loss.toFixed(2) : '--'}</td>
-                    <td><span class="badge-status">${o.status}</span></td>
-                    <td><button class="btn-sm-danger" onclick="window.app.cancelOrder('${o.id}')">Cancel</button></td>
-                </tr>
-            `).join('');
+        if (ordTbody) {
+            if (orders.length === 0) {
+                ordTbody.innerHTML = '<tr><td colspan="10" class="empty-table">No pending open orders.</td></tr>';
+            } else {
+                ordTbody.innerHTML = orders.map(o => `
+                    <tr>
+                        <td>${o.id}</td>
+                        <td><b>${o.symbol}</b></td>
+                        <td>${(o.type || 'limit').toUpperCase()}</td>
+                        <td class="${o.side === 'buy' ? 'bullish' : 'bearish'}"><b>${o.side.toUpperCase()}</b></td>
+                        <td>${o.quantity}</td>
+                        <td>${o.price ? this.formatPrice(o.price, true) : 'MARKET'}</td>
+                        <td class="bullish">${o.take_profit ? this.formatPrice(o.take_profit, true) : '--'}</td>
+                        <td class="bearish">${o.stop_loss ? this.formatPrice(o.stop_loss, true) : '--'}</td>
+                        <td><span class="badge-status">${o.status || 'open'}</span></td>
+                        <td><button class="btn-sm-danger" onclick="window.app.cancelOrder('${o.id}')">Cancel</button></td>
+                    </tr>
+                `).join('');
+            }
         }
 
         const histTbody = document.getElementById('history-tbody');
-        if (this.portfolio.trade_history.length === 0) {
-            histTbody.innerHTML = '<tr><td colspan="9" class="empty-table">No closed trade history yet.</td></tr>';
-        } else {
-            histTbody.innerHTML = this.portfolio.trade_history.map(h => {
-                const isPos = h.realized_pnl >= 0;
-                return `
-                    <tr>
-                        <td><b>${h.symbol}</b></td>
-                        <td class="${h.side === 'buy' ? 'bullish' : 'bearish'}">${h.side.toUpperCase()}</td>
-                        <td>${h.quantity}</td>
-                        <td>$${h.entry_price.toFixed(2)}</td>
-                        <td>$${h.exit_price.toFixed(2)}</td>
-                        <td class="${isPos ? 'bullish' : 'bearish'}"><b>${isPos ? '+' : ''}$${h.realized_pnl.toFixed(2)}</b></td>
-                        <td class="${isPos ? 'bullish' : 'bearish'}">${h.pnl_pct.toFixed(2)}%</td>
-                        <td>${h.reason}</td>
-                        <td>${h.source}</td>
-                    </tr>
-                `;
-            }).join('');
+        if (histTbody) {
+            const hist = this.portfolio.trade_history || [];
+            if (hist.length === 0) {
+                histTbody.innerHTML = '<tr><td colspan="9" class="empty-table">No closed trade history yet.</td></tr>';
+            } else {
+                histTbody.innerHTML = hist.map(h => {
+                    const isPos = (h.realized_pnl || 0) >= 0;
+                    return `
+                        <tr>
+                            <td><b>${h.symbol}</b></td>
+                            <td class="${h.side === 'buy' ? 'bullish' : 'bearish'}">${h.side.toUpperCase()}</td>
+                            <td>${h.quantity}</td>
+                            <td>${this.formatPrice(h.entry_price, true)}</td>
+                            <td>${this.formatPrice(h.exit_price, true)}</td>
+                            <td class="${isPos ? 'bullish' : 'bearish'}"><b>${isPos ? '+' : '-'}${curSym}${Math.abs(h.realized_pnl || 0).toFixed(2)}</b></td>
+                            <td class="${isPos ? 'bullish' : 'bearish'}">${(h.pnl_pct || 0).toFixed(2)}%</td>
+                            <td>${h.reason || 'Closed'}</td>
+                            <td>${h.source || 'paper'}</td>
+                        </tr>
+                    `;
+                }).join('');
+            }
         }
-    }
-
-    formatPrice(price) {
-        if (!isFinite(price) || price <= 0) return '0.00';
-        if (price >= 100) return price.toFixed(2);
-        if (price >= 1) return price.toFixed(2);
-        if (price >= 0.01) return price.toFixed(4);
-        return price.toFixed(6);
     }
 
     attachChartContextMenu(chartInstance, paneId) {
@@ -3172,7 +3263,10 @@ class OpenChartApp {
         if (!menu) return;
 
         const titleEl = document.getElementById('ctx-header-title');
-        if (titleEl) titleEl.textContent = `${cleanSym} / USDT`;
+        if (titleEl) titleEl.textContent = this.marketMode === 'ind' ? `${cleanSym} · NSE/BSE` : `${cleanSym} / USDT`;
+
+        const cur = this.currencySymbol || '$';
+        document.querySelectorAll('.ctx-cur').forEach(el => el.textContent = cur);
 
         const priceStr = this.formatPrice(price);
         document.querySelectorAll('.ctx-price').forEach(el => el.textContent = priceStr);
@@ -3375,33 +3469,153 @@ class OpenChartApp {
         });
     }
 
+    bindChartOrderCallbacks(chartObj) {
+        if (!chartObj) return;
+        chartObj.onOrderUpdate = (itemId, newTp, newSl) => this.updateOrderTpSl(itemId, newTp, newSl);
+        chartObj.onLimitPriceUpdate = (orderId, newPrice) => this.updateLimitOrderPrice(orderId, newPrice);
+        chartObj.onOrderClose = (posId, symbol) => this.closePosition(posId, symbol);
+        chartObj.onOrderCancel = (orderId) => this.cancelOrder(orderId);
+        chartObj.onOrderCancelTpSl = (itemId, which) => this.cancelOrderTpSl(itemId, which);
+        chartObj.onQuickAttachTpSl = (item, which) => this.quickAttachTpSl(item, which);
+    }
+
+    bindQuickChartTradeBar() {
+        const qtyInput = document.getElementById('cqt-qty');
+        const btnBuy = document.getElementById('btn-cqt-buy');
+        const btnSell = document.getElementById('btn-cqt-sell');
+
+        if (qtyInput) {
+            const sideQty = document.getElementById('order-quantity');
+            if (sideQty && sideQty.value) qtyInput.value = sideQty.value;
+            qtyInput.addEventListener('change', () => {
+                if (sideQty) sideQty.value = qtyInput.value;
+            });
+        }
+
+        const placeQuick = async (side) => {
+            const qty = parseFloat(qtyInput?.value) || parseFloat(document.getElementById('order-quantity')?.value) || (this.marketMode === 'ind' ? 50 : 0.1);
+            const curPrice = this.getCurrentPrice();
+            if (!curPrice || curPrice <= 0) return;
+
+            const slDist = curPrice * 0.012;
+            const tpDist = curPrice * 0.025;
+            const tp = side === 'buy' ? curPrice + tpDist : Math.max(1e-10, curPrice - tpDist);
+            const sl = side === 'buy' ? Math.max(1e-10, curPrice - slDist) : curPrice + slDist;
+
+            await this.placeOrder({
+                symbol: this.currentPair,
+                side,
+                order_type: 'market',
+                quantity: qty,
+                price: curPrice,
+                take_profit: tp,
+                stop_loss: sl,
+                source: 'chart_quick'
+            });
+        };
+
+        if (btnBuy) btnBuy.addEventListener('click', () => placeQuick('buy'));
+        if (btnSell) btnSell.addEventListener('click', () => placeQuick('sell'));
+    }
+
+    async placeLimitOrderFromChart(side, price) {
+        if (!price || !isFinite(price) || price <= 0) return;
+        const pair = this.activeContextPair || this.currentPair;
+        const qty = parseFloat(document.getElementById('cqt-qty')?.value)
+            || parseFloat(document.getElementById('order-quantity')?.value)
+            || (this.marketMode === 'ind' ? 50 : 0.1);
+
+        await this.placeOrder({
+            symbol: pair,
+            side,
+            order_type: 'limit',
+            quantity: qty,
+            price: price,
+            take_profit: null,
+            stop_loss: null,
+            source: 'chart_limit'
+        });
+    }
+
+    async applyContextPriceAsTpSl(which, price) {
+        if (!price || !isFinite(price) || price <= 0) return;
+        const pair = this.activeContextPair || this.currentPair;
+        const clean = this.cleanSymbol(pair);
+        const pos = (this.portfolio?.open_positions || []).find(p => this.cleanSymbol(p.symbol) === clean);
+        const ord = !pos ? (this.portfolio?.open_orders || []).find(o => this.cleanSymbol(o.symbol) === clean && o.type === 'limit') : null;
+        const target = pos || ord;
+
+        if (target) {
+            const newTp = which === 'tp' ? price : (target.take_profit || null);
+            const newSl = which === 'sl' ? price : (target.stop_loss || null);
+            await this.updateOrderTpSl(target.id, newTp, newSl);
+            this.showToastNotification(`✓ ${which.toUpperCase()} set @ ${this.formatPrice(price, true)} on chart`, 'success');
+            return;
+        }
+
+        // No open position/limit on this chart: place a Limit Order or populate order panel cleanly
+        const sidebar = document.getElementById('sidebar');
+        if (sidebar) sidebar.classList.remove('hidden');
+        document.querySelector('[data-tab="tab-trade"]')?.click();
+        const el = document.getElementById(which === 'tp' ? 'order-tp' : 'order-sl');
+        const chk = document.getElementById(which === 'tp' ? 'check-tp' : 'check-sl');
+        if (el) el.value = this.formatPrice(price);
+        if (chk) chk.checked = true;
+        this.recalculateTpSlPreviews();
+    }
+
+    async quickAttachTpSl(item, which) {
+        if (!item) return;
+        const refPrice = parseFloat(item.entry_price || item.price || this.getCurrentPrice() || 0);
+        if (!refPrice || refPrice <= 0) return;
+        const isBuy = (item.side || 'buy').toLowerCase() === 'buy';
+        let newTp = item.take_profit ? parseFloat(item.take_profit) : null;
+        let newSl = item.stop_loss ? parseFloat(item.stop_loss) : null;
+
+        if (which === 'tp') {
+            newTp = isBuy ? refPrice * 1.02 : Math.max(1e-10, refPrice * 0.98);
+        } else {
+            newSl = isBuy ? Math.max(1e-10, refPrice * 0.99) : refPrice * 1.01;
+        }
+
+        await this.updateOrderTpSl(item.id, newTp, newSl);
+        const val = which === 'tp' ? newTp : newSl;
+        this.showToastNotification(`✓ Attached ${which.toUpperCase()} @ ${this.formatPrice(val, true)} (Drag line to adjust)`, 'info');
+    }
+
     async placeOrder(orderPayload) {
         let executed = false;
         try {
+            const ctrl = new AbortController();
+            const tm = setTimeout(() => ctrl.abort(), 3000);
             const resp = await fetch('/api/orders', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(orderPayload)
+                body: JSON.stringify(orderPayload),
+                signal: ctrl.signal
             });
+            clearTimeout(tm);
             if (resp.ok) {
                 const data = await resp.json();
                 if (data.status === 'success') {
+                    this.paperModeBackend = true;
                     this.portfolio = data.portfolio;
                     this.updatePortfolioUI();
                     executed = true;
 
+                    const pShown = this.formatPrice(orderPayload.price || this.getCurrentPrice(), true);
                     if (data.kotak_relay && data.kotak_relay.status === 'success') {
                         const ordId = data.kotak_relay.order_id || 'Filled';
                         this.showToastNotification(`⚡ Kotak Neo Live: Placed ${orderPayload.side.toUpperCase()} ${orderPayload.quantity} ${orderPayload.symbol} (Broker Order: ${ordId})`, 'success');
-                    } else if (this.marketMode === 'ind') {
-                        this.showToastNotification(`✓ Placed ${orderPayload.side.toUpperCase()} ${orderPayload.quantity} ${orderPayload.symbol} @ ₹${orderPayload.price || this.getCurrentPrice()}`, 'success');
+                    } else if (orderPayload.order_type === 'limit') {
+                        this.showToastNotification(`📌 Limit ${orderPayload.side.toUpperCase()} ${orderPayload.quantity} ${this.cleanSymbol(orderPayload.symbol)} placed @ ${pShown} (Drag to move)`, 'info');
                     } else {
-                        this.showToastNotification(`✓ Placed ${orderPayload.side.toUpperCase()} ${orderPayload.quantity} ${orderPayload.symbol} @ $${orderPayload.price || this.getCurrentPrice()}`, 'success');
+                        this.showToastNotification(`✓ Paper ${orderPayload.side.toUpperCase()} ${orderPayload.quantity} ${this.cleanSymbol(orderPayload.symbol)} @ ${pShown}`, 'success');
                     }
 
                     if (orderPayload.take_profit || orderPayload.stop_loss) {
-                        const sym = this.currencySymbol || '$';
-                        this.showToastNotification(`🎯 Auto-Armed Bracket: TP @ ${sym}${orderPayload.take_profit || '-'} | SL @ ${sym}${orderPayload.stop_loss || '-'}`, 'info');
+                        const cur = this.currencySymbol || '$';
+                        this.showToastNotification(`🎯 Bracket Armed: TP @ ${orderPayload.take_profit ? this.formatPrice(orderPayload.take_profit, true) : '-'} | SL @ ${orderPayload.stop_loss ? this.formatPrice(orderPayload.stop_loss, true) : '-'}`, 'info');
                     }
                 }
             }
@@ -3409,42 +3623,67 @@ class OpenChartApp {
             // Server offline or static GitHub Pages fallback
         }
 
-        // Standalone Client-Side Execution Fallback (0ms immediate responsiveness)
+        // Standalone Client-Side Paper Trading Execution (0ms responsiveness, no account needed)
         if (!executed) {
+            this.paperModeBackend = false;
             if (!this.portfolio) {
-                this.portfolio = {
-                    balance: 1000000,
-                    equity: 1000000,
-                    open_positions: [],
-                    open_orders: [],
-                    trade_history: []
-                };
+                this.portfolio = this.getDefaultPaperPortfolio();
             }
 
-            const fillPrice = orderPayload.price || this.getCurrentPrice();
+            const curPrice = this.getCurrentPrice();
+            const orderPrice = parseFloat(orderPayload.price || curPrice || 0);
             const orderQty = parseFloat(orderPayload.quantity) || 1;
-            const posId = `pos_${Math.random().toString(36).substring(2, 9)}`;
+            const isLimit = (orderPayload.order_type || 'market').toLowerCase() === 'limit';
+            const fillNow = !isLimit || (
+                curPrice > 0 && (
+                    (orderPayload.side === 'buy' && curPrice <= orderPrice) ||
+                    (orderPayload.side === 'sell' && curPrice >= orderPrice)
+                )
+            );
 
+            if (!fillNow) {
+                const ordId = `ord_${Math.random().toString(36).substring(2, 9)}`;
+                this.portfolio.open_orders.unshift({
+                    id: ordId,
+                    symbol: orderPayload.symbol,
+                    side: orderPayload.side,
+                    type: 'limit',
+                    quantity: orderQty,
+                    price: orderPrice,
+                    take_profit: orderPayload.take_profit ? parseFloat(orderPayload.take_profit) : null,
+                    stop_loss: orderPayload.stop_loss ? parseFloat(orderPayload.stop_loss) : null,
+                    status: 'open',
+                    created_at: Date.now() / 1000,
+                    source: orderPayload.source || 'paper_limit'
+                });
+                this.recalcPaperPortfolioMetrics();
+                this.savePaperPortfolio();
+                this.updatePortfolioUI();
+                this.showToastNotification(`📌 Paper Limit ${orderPayload.side.toUpperCase()} ${orderQty} ${this.cleanSymbol(orderPayload.symbol)} @ ${this.formatPrice(orderPrice, true)} (Drag on chart)`, 'info');
+                return;
+            }
+
+            const fillPrice = isLimit ? orderPrice : (curPrice || orderPrice);
+            const posId = `pos_${Math.random().toString(36).substring(2, 9)}`;
             const newPos = {
                 id: posId,
                 symbol: orderPayload.symbol,
                 side: orderPayload.side,
                 quantity: orderQty,
                 entry_price: fillPrice,
-                current_price: fillPrice,
-                take_profit: orderPayload.take_profit,
-                stop_loss: orderPayload.stop_loss,
+                current_price: curPrice || fillPrice,
+                take_profit: orderPayload.take_profit ? parseFloat(orderPayload.take_profit) : null,
+                stop_loss: orderPayload.stop_loss ? parseFloat(orderPayload.stop_loss) : null,
                 unrealized_pnl: 0.0,
                 unrealized_pnl_pct: 0.0,
                 opened_at: Date.now() / 1000,
-                source: orderPayload.source || 'manual'
+                source: orderPayload.source || 'paper'
             };
 
             this.portfolio.open_positions.unshift(newPos);
 
-            // Automatically place linked OCO Sell exit orders for TP & SL
             const exitSide = orderPayload.side === 'buy' ? 'sell' : 'buy';
-            if (orderPayload.take_profit) {
+            if (newPos.take_profit) {
                 this.portfolio.open_orders.unshift({
                     id: `ord_tp_${Math.random().toString(36).substring(2, 8)}`,
                     parent_pos_id: posId,
@@ -3452,7 +3691,7 @@ class OpenChartApp {
                     side: exitSide,
                     type: 'limit',
                     quantity: orderQty,
-                    price: parseFloat(orderPayload.take_profit),
+                    price: newPos.take_profit,
                     take_profit: null,
                     stop_loss: null,
                     status: 'open',
@@ -3460,7 +3699,7 @@ class OpenChartApp {
                     source: 'bracket_take_profit'
                 });
             }
-            if (orderPayload.stop_loss) {
+            if (newPos.stop_loss) {
                 this.portfolio.open_orders.unshift({
                     id: `ord_sl_${Math.random().toString(36).substring(2, 8)}`,
                     parent_pos_id: posId,
@@ -3468,7 +3707,7 @@ class OpenChartApp {
                     side: exitSide,
                     type: 'stop',
                     quantity: orderQty,
-                    price: parseFloat(orderPayload.stop_loss),
+                    price: newPos.stop_loss,
                     take_profit: null,
                     stop_loss: null,
                     status: 'open',
@@ -3477,53 +3716,357 @@ class OpenChartApp {
                 });
             }
 
+            this.recalcPaperPortfolioMetrics();
+            this.savePaperPortfolio();
             this.updatePortfolioUI();
+            this.showToastNotification(`✓ Paper ${orderPayload.side.toUpperCase()} ${orderQty} ${this.cleanSymbol(orderPayload.symbol)} @ ${this.formatPrice(fillPrice, true)}`, 'success');
         }
     }
 
     async updateOrderTpSl(itemId, takeProfit, stopLoss) {
+        let updated = false;
         try {
+            const ctrl = new AbortController();
+            const tm = setTimeout(() => ctrl.abort(), 2500);
             const resp = await fetch(`/api/orders/${itemId}/tpsl`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     take_profit: takeProfit,
                     stop_loss: stopLoss
-                })
+                }),
+                signal: ctrl.signal
             });
-            const data = await resp.json();
-            if (data.status === 'success') {
-                this.portfolio = data.portfolio;
+            clearTimeout(tm);
+            if (resp.ok) {
+                const data = await resp.json();
+                if (data.status === 'success') {
+                    this.portfolio = data.portfolio;
+                    this.updatePortfolioUI();
+                    updated = true;
+                }
+            }
+        } catch (e) {}
+
+        if (!updated && this.portfolio) {
+            const pos = (this.portfolio.open_positions || []).find(p => p.id === itemId);
+            const ord = !pos ? (this.portfolio.open_orders || []).find(o => o.id === itemId) : null;
+            const target = pos || ord;
+            if (target) {
+                if (takeProfit !== undefined && takeProfit !== null) target.take_profit = parseFloat(takeProfit);
+                if (stopLoss !== undefined && stopLoss !== null) target.stop_loss = parseFloat(stopLoss);
+
+                if (pos) {
+                    const exitSide = pos.side === 'buy' ? 'sell' : 'buy';
+                    if (pos.take_profit) {
+                        const tpOrd = (this.portfolio.open_orders || []).find(o => o.parent_pos_id === pos.id && o.source === 'bracket_take_profit');
+                        if (tpOrd) tpOrd.price = pos.take_profit;
+                        else this.portfolio.open_orders.unshift({
+                            id: `ord_tp_${Math.random().toString(36).substring(2, 8)}`,
+                            parent_pos_id: pos.id, symbol: pos.symbol, side: exitSide,
+                            type: 'limit', quantity: pos.quantity, price: pos.take_profit,
+                            status: 'open', created_at: Date.now() / 1000, source: 'bracket_take_profit'
+                        });
+                    }
+                    if (pos.stop_loss) {
+                        const slOrd = (this.portfolio.open_orders || []).find(o => o.parent_pos_id === pos.id && o.source === 'bracket_stop_loss');
+                        if (slOrd) slOrd.price = pos.stop_loss;
+                        else this.portfolio.open_orders.unshift({
+                            id: `ord_sl_${Math.random().toString(36).substring(2, 8)}`,
+                            parent_pos_id: pos.id, symbol: pos.symbol, side: exitSide,
+                            type: 'stop', quantity: pos.quantity, price: pos.stop_loss,
+                            status: 'open', created_at: Date.now() / 1000, source: 'bracket_stop_loss'
+                        });
+                    }
+                }
+                this.recalcPaperPortfolioMetrics();
+                this.savePaperPortfolio();
                 this.updatePortfolioUI();
             }
-        } catch (e) {
-            console.error("Error updating TP/SL:", e);
         }
+    }
+
+    async updateLimitOrderPrice(orderId, newPrice) {
+        if (!newPrice || !isFinite(newPrice) || newPrice <= 0) return;
+        let updated = false;
+        try {
+            const ctrl = new AbortController();
+            const tm = setTimeout(() => ctrl.abort(), 2500);
+            const resp = await fetch(`/api/orders/${orderId}/tpsl`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ price: newPrice }),
+                signal: ctrl.signal
+            });
+            clearTimeout(tm);
+            if (resp.ok) {
+                const data = await resp.json();
+                if (data.status === 'success') {
+                    this.portfolio = data.portfolio;
+                    this.updatePortfolioUI();
+                    updated = true;
+                }
+            }
+        } catch (e) {}
+
+        if (!updated && this.portfolio) {
+            const ord = (this.portfolio.open_orders || []).find(o => o.id === orderId);
+            if (ord) {
+                ord.price = parseFloat(newPrice);
+                this.savePaperPortfolio();
+                this.updatePortfolioUI();
+            }
+        }
+    }
+
+    async cancelOrderTpSl(itemId, which) {
+        let updated = false;
+        const payload = which === 'tp' ? { clear_tp: true } : { clear_sl: true };
+        try {
+            const ctrl = new AbortController();
+            const tm = setTimeout(() => ctrl.abort(), 2500);
+            const resp = await fetch(`/api/orders/${itemId}/tpsl`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+                signal: ctrl.signal
+            });
+            clearTimeout(tm);
+            if (resp.ok) {
+                const data = await resp.json();
+                if (data.status === 'success') {
+                    this.portfolio = data.portfolio;
+                    this.updatePortfolioUI();
+                    updated = true;
+                }
+            }
+        } catch (e) {}
+
+        if (!updated && this.portfolio) {
+            const pos = (this.portfolio.open_positions || []).find(p => p.id === itemId);
+            const ord = !pos ? (this.portfolio.open_orders || []).find(o => o.id === itemId) : null;
+            const target = pos || ord;
+            if (target) {
+                if (which === 'tp') {
+                    target.take_profit = null;
+                    if (pos) {
+                        this.portfolio.open_orders = (this.portfolio.open_orders || []).filter(
+                            o => !(o.parent_pos_id === pos.id && o.source === 'bracket_take_profit')
+                        );
+                    }
+                } else {
+                    target.stop_loss = null;
+                    if (pos) {
+                        this.portfolio.open_orders = (this.portfolio.open_orders || []).filter(
+                            o => !(o.parent_pos_id === pos.id && o.source === 'bracket_stop_loss')
+                        );
+                    }
+                }
+                this.savePaperPortfolio();
+                this.updatePortfolioUI();
+            }
+        }
+        this.showToastNotification(`✕ Removed ${which.toUpperCase()} from chart`, 'info');
     }
 
     async cancelOrder(orderId) {
+        let done = false;
         try {
-            const resp = await fetch(`/api/orders/${orderId}`, { method: 'DELETE' });
-            const data = await resp.json();
-            this.portfolio = data.portfolio;
+            const ctrl = new AbortController();
+            const tm = setTimeout(() => ctrl.abort(), 2500);
+            const resp = await fetch(`/api/orders/${orderId}`, { method: 'DELETE', signal: ctrl.signal });
+            clearTimeout(tm);
+            if (resp.ok) {
+                const data = await resp.json();
+                if (data.portfolio) {
+                    this.portfolio = data.portfolio;
+                    this.updatePortfolioUI();
+                    done = true;
+                }
+            }
+        } catch (e) {}
+
+        if (!done && this.portfolio) {
+            const target = (this.portfolio.open_orders || []).find(o => o.id === orderId);
+            if (target && target.parent_pos_id) {
+                const parent = (this.portfolio.open_positions || []).find(p => p.id === target.parent_pos_id);
+                if (parent) {
+                    if (target.source === 'bracket_take_profit') parent.take_profit = null;
+                    if (target.source === 'bracket_stop_loss') parent.stop_loss = null;
+                }
+            }
+            this.portfolio.open_orders = (this.portfolio.open_orders || []).filter(o => o.id !== orderId);
+            this.savePaperPortfolio();
             this.updatePortfolioUI();
-        } catch (e) {
-            console.error("Cancel order error:", e);
         }
+        this.showToastNotification('✕ Pending order cancelled', 'info');
     }
 
     async closePosition(posId, symbol) {
+        let closed = false;
         try {
+            const ctrl = new AbortController();
+            const tm = setTimeout(() => ctrl.abort(), 2500);
             const resp = await fetch(`/api/positions/${posId}/close`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ symbol: symbol })
+                body: JSON.stringify({ symbol: symbol }),
+                signal: ctrl.signal
             });
-            const data = await resp.json();
-            this.portfolio = data.portfolio;
-            this.updatePortfolioUI();
-        } catch (e) {
-            console.error("Close position error:", e);
+            clearTimeout(tm);
+            if (resp.ok) {
+                const data = await resp.json();
+                if (data.portfolio) {
+                    this.portfolio = data.portfolio;
+                    this.updatePortfolioUI();
+                    closed = true;
+                }
+            }
+        } catch (e) {}
+
+        if (!closed && this.portfolio) {
+            const idx = (this.portfolio.open_positions || []).findIndex(p => p.id === posId);
+            if (idx !== -1) {
+                const pos = this.portfolio.open_positions[idx];
+                const exitPrice = parseFloat(pos.current_price || this.getCurrentPrice() || pos.entry_price);
+                const diff = pos.side === 'buy' ? (exitPrice - pos.entry_price) : (pos.entry_price - exitPrice);
+                const realized = diff * pos.quantity;
+                const pnlPct = pos.entry_price > 0 ? (diff / pos.entry_price) * 100 : 0;
+
+                this.portfolio.balance = (parseFloat(this.portfolio.balance) || 0) + realized;
+                this.portfolio.trade_history.unshift({
+                    id: `trd_${Math.random().toString(36).substring(2, 9)}`,
+                    symbol: pos.symbol,
+                    side: pos.side,
+                    quantity: pos.quantity,
+                    entry_price: pos.entry_price,
+                    exit_price: exitPrice,
+                    realized_pnl: realized,
+                    pnl_pct: pnlPct,
+                    reason: 'Closed from Chart',
+                    source: pos.source || 'paper',
+                    closed_at: Date.now() / 1000
+                });
+                this.portfolio.open_positions.splice(idx, 1);
+                this.portfolio.open_orders = (this.portfolio.open_orders || []).filter(o => o.parent_pos_id !== pos.id);
+                this.recalcPaperPortfolioMetrics();
+                this.savePaperPortfolio();
+                this.updatePortfolioUI();
+                const sign = realized >= 0 ? '+' : '-';
+                this.showToastNotification(`✓ Closed ${this.cleanSymbol(pos.symbol)} (${sign}${this.currencySymbol || '$'}${Math.abs(realized).toFixed(2)})`, realized >= 0 ? 'success' : 'warning');
+                return;
+            }
+        }
+        if (closed) {
+            this.showToastNotification(`✓ Closed ${this.cleanSymbol(symbol || '')} position`, 'success');
+        }
+    }
+
+    evaluatePaperPortfolioTick(symStr, price) {
+        if (!this.portfolio || !price || !isFinite(price) || price <= 0) return;
+        const cleanTick = this.cleanSymbol(symStr);
+        if (!cleanTick) return;
+
+        let dirty = false;
+        const positions = this.portfolio.open_positions || [];
+        const orders = this.portfolio.open_orders || [];
+
+        // If backend is active, still keep live unrealized PnL fresh smoothly in client for immediate HUD feedback,
+        // while letting backend own actual fills/closures if server mode is active.
+        if (!this.paperModeBackend) {
+            // 1. Check pending Limit Orders for fills
+            for (let i = orders.length - 1; i >= 0; i--) {
+                const o = orders[i];
+                if (o.parent_pos_id || (o.type || '').toLowerCase() !== 'limit') continue;
+                if (this.cleanSymbol(o.symbol) !== cleanTick) continue;
+
+                const shouldFill = (o.side === 'buy' && price <= o.price) || (o.side === 'sell' && price >= o.price);
+                if (shouldFill) {
+                    orders.splice(i, 1);
+                    const posId = `pos_${Math.random().toString(36).substring(2, 9)}`;
+                    const newPos = {
+                        id: posId,
+                        symbol: o.symbol,
+                        side: o.side,
+                        quantity: o.quantity,
+                        entry_price: o.price,
+                        current_price: price,
+                        take_profit: o.take_profit || null,
+                        stop_loss: o.stop_loss || null,
+                        unrealized_pnl: 0,
+                        unrealized_pnl_pct: 0,
+                        opened_at: Date.now() / 1000,
+                        source: o.source || 'paper_limit'
+                    };
+                    positions.unshift(newPos);
+                    const exitSide = o.side === 'buy' ? 'sell' : 'buy';
+                    if (newPos.take_profit) {
+                        orders.unshift({
+                            id: `ord_tp_${Math.random().toString(36).substring(2, 8)}`,
+                            parent_pos_id: posId, symbol: o.symbol, side: exitSide,
+                            type: 'limit', quantity: o.quantity, price: newPos.take_profit,
+                            status: 'open', created_at: Date.now() / 1000, source: 'bracket_take_profit'
+                        });
+                    }
+                    if (newPos.stop_loss) {
+                        orders.unshift({
+                            id: `ord_sl_${Math.random().toString(36).substring(2, 8)}`,
+                            parent_pos_id: posId, symbol: o.symbol, side: exitSide,
+                            type: 'stop', quantity: o.quantity, price: newPos.stop_loss,
+                            status: 'open', created_at: Date.now() / 1000, source: 'bracket_stop_loss'
+                        });
+                    }
+                    dirty = true;
+                    this.showToastNotification(`⚡ Limit Filled: ${o.side.toUpperCase()} ${o.quantity} ${cleanTick} @ ${this.formatPrice(o.price, true)}`, 'success');
+                }
+            }
+
+            // 2. Check Open Positions for TP / SL exits
+            for (let i = positions.length - 1; i >= 0; i--) {
+                const p = positions[i];
+                if (this.cleanSymbol(p.symbol) !== cleanTick) continue;
+                p.current_price = price;
+
+                const tpHit = p.take_profit && ((p.side === 'buy' && price >= p.take_profit) || (p.side === 'sell' && price <= p.take_profit));
+                const slHit = p.stop_loss && ((p.side === 'buy' && price <= p.stop_loss) || (p.side === 'sell' && price >= p.stop_loss));
+                if (tpHit || slHit) {
+                    const exitP = tpHit ? p.take_profit : p.stop_loss;
+                    const diff = p.side === 'buy' ? (exitP - p.entry_price) : (p.entry_price - exitP);
+                    const realized = diff * p.quantity;
+                    const pnlPct = p.entry_price > 0 ? (diff / p.entry_price) * 100 : 0;
+
+                    this.portfolio.balance = (parseFloat(this.portfolio.balance) || 0) + realized;
+                    this.portfolio.trade_history.unshift({
+                        id: `trd_${Math.random().toString(36).substring(2, 9)}`,
+                        symbol: p.symbol, side: p.side, quantity: p.quantity,
+                        entry_price: p.entry_price, exit_price: exitP,
+                        realized_pnl: realized, pnl_pct: pnlPct,
+                        reason: tpHit ? 'Take Profit' : 'Stop Loss',
+                        source: p.source || 'paper', closed_at: Date.now() / 1000
+                    });
+                    positions.splice(i, 1);
+                    this.portfolio.open_orders = orders.filter(o => o.parent_pos_id !== p.id);
+                    dirty = true;
+                    this.showToastNotification(
+                        `${tpHit ? '🎯 Take Profit' : '🛑 Stop Loss'} Hit: ${cleanTick} (${realized >= 0 ? '+' : '-'}${this.currencySymbol || '$'}${Math.abs(realized).toFixed(2)})`,
+                        tpHit ? 'success' : 'warning'
+                    );
+                }
+            }
+        } else {
+            positions.forEach(p => {
+                if (this.cleanSymbol(p.symbol) === cleanTick) p.current_price = price;
+            });
+        }
+
+        if (positions.length || dirty) {
+            this.recalcPaperPortfolioMetrics();
+            if (dirty) this.savePaperPortfolio();
+            const now = Date.now();
+            if (dirty || !this._lastPortfolioUiUpdate || now - this._lastPortfolioUiUpdate > 450) {
+                this._lastPortfolioUiUpdate = now;
+                this.updatePortfolioUI();
+            }
         }
     }
 
@@ -3709,6 +4252,7 @@ class OpenChartApp {
                     timeframe: defaultTf
                 });
 
+                this.bindChartOrderCallbacks(paneChart);
                 this.attachChartContextMenu(paneChart, id);
 
                 this.panes.set(id, {
@@ -3891,6 +4435,32 @@ class OpenChartApp {
                     }
                 }
             } catch(e) {}
+
+            // 2a-ii. Bybit Spot Fallback for CoinDCX-listed altcoins
+            if (!candles || !candles.length) {
+                const bybitMap = { '1m': '1', '5m': '5', '15m': '15', '30m': '30', '1h': '60', '4h': '240', '1d': 'D' };
+                const bybitIv = bybitMap[(pane.interval || '15m').toLowerCase()] || '15';
+                try {
+                    const bbCtrl = new AbortController();
+                    const bbTm = setTimeout(() => bbCtrl.abort(), 2500);
+                    const bbResp = await fetch(`https://api.bybit.com/v5/market/kline?category=spot&symbol=${sym}&interval=${bybitIv}&limit=160`, { signal: bbCtrl.signal });
+                    clearTimeout(bbTm);
+                    if (bbResp.ok) {
+                        const json = await bbResp.json();
+                        const list = json?.result?.list;
+                        if (Array.isArray(list) && list.length) {
+                            candles = list.slice().reverse().map(k => ({
+                                time: parseInt(k[0], 10),
+                                open: parseFloat(k[1]),
+                                high: parseFloat(k[2]),
+                                low: parseFloat(k[3]),
+                                close: parseFloat(k[4]),
+                                volume: parseFloat(k[5] || 0)
+                            }));
+                        }
+                    }
+                } catch(e) {}
+            }
         }
 
         // 2b. Indian Market Relay Fallback
@@ -3928,6 +4498,9 @@ class OpenChartApp {
                 }
             }
         });
+        if (tick && tick.price > 0) {
+            this.evaluatePaperPortfolioTick(symStr, tick.price);
+        }
         if (this.cleanSymbol(this.currentPair) === cleanIncoming) {
             this.updateTickerHeader();
             if (!this._lastIndRefresh || Date.now() - this._lastIndRefresh > 2500) {
@@ -4164,8 +4737,8 @@ class OpenChartApp {
             price: lastC,
             change_pct: prevC ? parseFloat((((lastC - prevC) / prevC) * 100).toFixed(2)) : 0,
             rsi: parseFloat(curRsi.toFixed(1)),
-            target: isCall ? (lastC + tpDist) : Math.max(0.00001, lastC - tpDist),
-            stop_loss: isCall ? Math.max(0.00001, lastC - slDist) : (lastC + slDist),
+            target: isCall ? (lastC + tpDist) : Math.max(1e-10, lastC - tpDist),
+            stop_loss: isCall ? Math.max(1e-10, lastC - slDist) : (lastC + slDist),
             rr: '2.1 : 1',
             option_rec
         };
@@ -4212,6 +4785,12 @@ class OpenChartApp {
         tbody.innerHTML = filtered.map(item => {
             const isCall = item.signal === 'CALL';
             const clean = this.cleanSymbol(item.symbol);
+            let subName = (item.display_name || '').trim();
+            const upperSub = subName.toUpperCase();
+            const upperClean = clean.toUpperCase();
+            if (!subName || upperSub === upperClean || upperSub.startsWith(upperClean + ' /') || upperSub.startsWith(upperClean + '/')) {
+                subName = this.marketMode === 'ind' ? 'NSE / Equity' : 'Spot / USDT';
+            }
             const stratsHtml = (item.strategies || []).map(s => `<span class="strat-pill">${s}</span>`).join('');
             const optHtml = item.option_rec
                 ? `<div class="opt-strike-hint">⚡ ${item.option_rec.contract} @ ₹${item.option_rec.ltp}</div>`
@@ -4222,7 +4801,7 @@ class OpenChartApp {
                     <td>
                         <div class="trend-name-group">
                             <span class="trend-sym-code">${clean}</span>
-                            <span class="trend-sector-sub">${item.display_name || clean}</span>
+                            <span class="trend-sector-sub">${subName}</span>
                         </div>
                     </td>
                     <td>
