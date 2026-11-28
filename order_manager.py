@@ -48,32 +48,60 @@ class OrderManager:
         self.orders[order_id] = order
         return order
 
-    def update_tp_sl(self, order_or_pos_id: str, take_profit: Optional[float], stop_loss: Optional[float]) -> bool:
-        """Update Take-Profit and Stop-Loss for an open order or existing position."""
+    def update_tp_sl(
+        self,
+        order_or_pos_id: str,
+        take_profit: Optional[float] = None,
+        stop_loss: Optional[float] = None,
+        clear_tp: bool = False,
+        clear_sl: bool = False,
+        price: Optional[float] = None
+    ) -> bool:
+        """Update or clear Take-Profit, Stop-Loss, or Limit Price for an open order or existing position."""
         updated = False
         if order_or_pos_id in self.orders:
-            if take_profit is not None:
-                self.orders[order_or_pos_id]["take_profit"] = float(take_profit)
-            if stop_loss is not None:
-                self.orders[order_or_pos_id]["stop_loss"] = float(stop_loss)
+            ord_obj = self.orders[order_or_pos_id]
+            if price is not None and float(price) > 0:
+                ord_obj["price"] = float(price)
+            if clear_tp:
+                ord_obj["take_profit"] = None
+            elif take_profit is not None:
+                ord_obj["take_profit"] = float(take_profit)
+            if clear_sl:
+                ord_obj["stop_loss"] = None
+            elif stop_loss is not None:
+                ord_obj["stop_loss"] = float(stop_loss)
             updated = True
 
         if order_or_pos_id in self.positions:
-            if take_profit is not None:
-                self.positions[order_or_pos_id]["take_profit"] = float(take_profit)
-            if stop_loss is not None:
-                self.positions[order_or_pos_id]["stop_loss"] = float(stop_loss)
+            pos_obj = self.positions[order_or_pos_id]
+            if clear_tp:
+                pos_obj["take_profit"] = None
+            elif take_profit is not None:
+                pos_obj["take_profit"] = float(take_profit)
+            if clear_sl:
+                pos_obj["stop_loss"] = None
+            elif stop_loss is not None:
+                pos_obj["stop_loss"] = float(stop_loss)
             updated = True
 
-        # Also update linked bracket exit orders
+        # Also update/cancel linked bracket exit orders
         for o in self.orders.values():
             if o.get("parent_pos_id") == order_or_pos_id and o.get("status") == "open":
-                if take_profit is not None and o.get("source") == "bracket_take_profit":
-                    o["price"] = float(take_profit)
-                    updated = True
-                if stop_loss is not None and o.get("source") == "bracket_stop_loss":
-                    o["price"] = float(stop_loss)
-                    updated = True
+                if o.get("source") == "bracket_take_profit":
+                    if clear_tp:
+                        o["status"] = "cancelled"
+                        updated = True
+                    elif take_profit is not None:
+                        o["price"] = float(take_profit)
+                        updated = True
+                if o.get("source") == "bracket_stop_loss":
+                    if clear_sl:
+                        o["status"] = "cancelled"
+                        updated = True
+                    elif stop_loss is not None:
+                        o["price"] = float(stop_loss)
+                        updated = True
 
         return updated
 

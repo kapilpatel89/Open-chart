@@ -144,9 +144,10 @@ def evaluate_candles_strategies(symbol: str, display_name: str, candles: List[Di
     sl_dist = max(cur_atr * 1.5, last_c * 0.004)
     tp_dist = sl_dist * 2.1
 
-    entry_price = round(last_c, 6 if last_c < 1 else 2)
-    target_price = round(last_c + tp_dist if is_call else max(0.00001, last_c - tp_dist), 6 if last_c < 1 else 2)
-    stop_loss = round(max(0.00001, last_c - sl_dist) if is_call else last_c + sl_dist, 6 if last_c < 1 else 2)
+    prec = 8 if last_c < 0.001 else (6 if last_c < 0.1 else (4 if last_c < 10 else 2))
+    entry_price = round(last_c, prec)
+    target_price = round(last_c + tp_dist if is_call else max(1e-8, last_c - tp_dist), prec)
+    stop_loss = round(max(1e-8, last_c - sl_dist) if is_call else last_c + sl_dist, prec)
 
     chg_pct = round(((last_c - prev_c) / prev_c) * 100.0, 2) if prev_c else 0.0
 

@@ -333,9 +333,23 @@ async def place_order(
     return {"status": "success", "order": order, "kotak_relay": kotak_res, "portfolio": order_manager.get_summary()}
 
 @app.put("/api/orders/{order_id}/tpsl")
-async def update_tp_sl(order_id: str, take_profit: Optional[float] = Body(None), stop_loss: Optional[float] = Body(None)):
-    """Update Take-Profit and Stop-Loss by dragging lines on the chart."""
-    success = order_manager.update_tp_sl(order_id, take_profit, stop_loss)
+async def update_tp_sl(
+    order_id: str,
+    take_profit: Optional[float] = Body(None),
+    stop_loss: Optional[float] = Body(None),
+    clear_tp: bool = Body(False),
+    clear_sl: bool = Body(False),
+    price: Optional[float] = Body(None)
+):
+    """Update or clear Take-Profit, Stop-Loss, or Limit Price by dragging/clicking lines on the chart."""
+    success = order_manager.update_tp_sl(
+        order_id,
+        take_profit=take_profit,
+        stop_loss=stop_loss,
+        clear_tp=clear_tp,
+        clear_sl=clear_sl,
+        price=price
+    )
     if not success:
         raise HTTPException(status_code=404, detail="Order or position not found")
     return {"status": "success", "portfolio": order_manager.get_summary()}
@@ -346,9 +360,18 @@ async def cancel_order(order_id: str):
     return {"status": "success" if success else "failed", "portfolio": order_manager.get_summary()}
 
 @app.post("/api/positions/{pos_id}/close")
-async def close_position(pos_id: str, symbol: str = Body(...)):
-    clean_sym = symbol.replace("B-", "").replace("_USDT", "").replace("USDT", "").strip().upper()
-    cur_p = indian_market.live_prices.get(clean_sym) or feed.live_prices.get(symbol) or 0.0
+async def close_position(pos_id: str, symbol: str = Body("", embed=True)):
+    pos = order_manager.positions.get(pos_id) if isinstance(order_manager.positions, dict) else next((p for p in order_manager.positions if p["id"] == pos_id), None)
+    sym = symbol or (pos["symbol"] if pos else "")
+    clean_sym = sym.replace("B-", "").replace("_USDT", "").replace("USDT", "").strip().upper()
+    cur_p = (
+        indian_market.live_prices.get(clean_sym)
+        or feed.live_prices.get(sym)
+        or feed.live_prices.get(f"B-{sym}")
+        or (pos["current_price"] if pos else 0.0)
+        or (pos["entry_price"] if pos else 0.0)
+        or 0.0
+    )
     rec = order_manager.close_position_manual(pos_id, cur_p)
     return {"status": "success", "record": rec, "portfolio": order_manager.get_summary()}
 

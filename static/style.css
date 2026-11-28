@@ -3102,13 +3102,98 @@ canvas {
 
 .scanner-actions-cell {
     display: inline-flex;
-    gap: 6px;
+    gap: 5px;
     align-items: center;
 }
+
+.scanner-table th, .scanner-table td {
+    padding: 7px 8px;
+    font-size: 11px;
+}
+
+.scanner-table .trend-name-group {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    line-height: 1.25;
+}
+
+.scanner-table .trend-sym-code {
+    font-weight: 800;
+    color: #fff;
+    font-size: 12px;
+}
+
+.scanner-table .trend-sector-sub {
+    font-size: 10px;
+    color: var(--text-secondary);
+}
+
+/* Floating On-Chart 1-Click Quick Trade Pill */
+.chart-quick-trade {
+    position: absolute;
+    top: 38px;
+    left: 10px;
+    z-index: 16;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    background: rgba(10, 14, 23, 0.86);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 6px;
+    padding: 3px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.55);
+}
+
+.cqt-btn {
+    border: none;
+    border-radius: 4px;
+    padding: 4px 10px;
+    font-size: 10.5px;
+    font-weight: 800;
+    cursor: pointer;
+    letter-spacing: 0.4px;
+    transition: transform 0.12s ease, filter 0.12s ease;
+}
+
+.cqt-btn:hover { filter: brightness(1.12); transform: translateY(-0.5px); }
+.cqt-btn:active { transform: scale(0.96); }
+.cqt-btn.buy { background: #00e676; color: #05140b; }
+.cqt-btn.sell { background: #ff1744; color: #ffffff; }
+
+.cqt-qty {
+    width: 56px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 4px;
+    color: #fff;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    text-align: center;
+    padding: 3px 4px;
+    outline: none;
+}
+
+.cqt-qty:focus { border-color: #00f0ff; }
 
 @media (max-width: 768px) {
     .scanner-summary-ribbon {
         grid-template-columns: repeat(2, 1fr);
+    }
+    .chart-quick-trade {
+        top: 30px;
+        left: 6px;
+        padding: 2px;
+    }
+    .cqt-btn {
+        padding: 3px 7px;
+        font-size: 10px;
+    }
+    .cqt-qty {
+        width: 44px;
+        font-size: 10px;
     }
 }
 

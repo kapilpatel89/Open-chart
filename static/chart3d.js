@@ -76,10 +76,17 @@ class OpenChart3D {
         this.axisDragStartPriceMid = 0;
         this.mousePos = { x: -1, y: -1 };
 
-        // Draggable Orders State
+        // Draggable Orders State & Interactive Callbacks
         this.draggedLine = null;
         this.onOrderUpdate = null;
+        this.onOrderClose = null;
+        this.onOrderCancel = null;
+        this.onOrderCancelTpSl = null;
+        this.onQuickAttachTpSl = null;
+        this.onLimitPriceUpdate = null;
         this.onContextMenuRequest = null;
+        this._interactiveHitBoxes = [];
+        this._pricePlusHit = null;
 
         this.init();
     }
@@ -1205,78 +1212,281 @@ class OpenChart3D {
     }
 
     drawInteractiveOrders(ctx) {
+        this._interactiveHitBoxes = [];
         const allItems = [...this.positions, ...this.orders];
         const chartRight = this.width - this.priceAxisWidth;
+        const curSym = this.getCurrency();
+        const liveClose = (this.candles && this.candles.length) ? this.candles[this.candles.length - 1].close : 0;
+
+        // Avoid cluttering chart with internal bracket child orders if parent position draws TP/SL
+        const posIds = new Set(this.positions.map(p => p.id));
 
         allItems.forEach(item => {
+            if (item.parent_pos_id && posIds.has(item.parent_pos_id)) {
+                return;
+            }
             const entryP = item.entry_price || item.price;
-            if (!entryP) return;
+            if (!entryP || !isFinite(entryP)) return;
 
             const isPosition = !!item.entry_price;
             const side = (item.side || 'buy').toUpperCase();
-            const qty = item.quantity || 0;
-
+            const qty = parseFloat(item.quantity || 0);
             const entryY = this.priceToY(entryP);
-            ctx.save();
-            ctx.strokeStyle = '#00f0ff';
-            ctx.lineWidth = 1.5;
-            ctx.setLineDash([5, 3]);
-            ctx.beginPath();
-            ctx.moveTo(0, entryY);
-            ctx.lineTo(chartRight, entryY);
-            ctx.stroke();
 
-            this.drawOrderBadge(ctx, chartRight - 165, entryY, `${isPosition ? 'POS' : 'LIMIT'} ${side} ${qty} @ ${entryP.toFixed(2)}`, '#00f0ff', '#001a24');
-            ctx.restore();
+            item._tpHit = null;
+            item._slHit = null;
+            item._limitHit = null;
+
+            // Clip interactive lines cleanly above timeline / subpane
+            if (entryY >= 4 && entryY <= this.chartHeight - 4) {
+                ctx.save();
+                ctx.strokeStyle = isPosition ? (side === 'BUY' ? '#00e676' : '#ff3366') : '#00f0ff';
+                ctx.lineWidth = isPosition ? 1.8 : 1.5;
+                ctx.setLineDash(isPosition ? [6, 3] : [4, 4]);
+                ctx.beginPath();
+                ctx.moveTo(0, entryY);
+                ctx.lineTo(chartRight, entryY);
+                ctx.stroke();
+                ctx.setLineDash([]);
+
+                if (isPosition) {
+                    const markP = liveClose > 0 ? liveClose : (item.current_price || entryP);
+                    const diff = side === 'BUY' ? (markP - entryP) : (entryP - markP);
+                    const livePnl = diff * qty;
+                    const livePct = (diff / entryP) * 100;
+                    const isProfit = livePnl >= 0;
+                    const pnlSign = isProfit ? '+' : '-';
+                    const pnlStr = `${pnlSign}${curSym}${this.formatPrice(Math.abs(livePnl))} (${isProfit ? '+' : ''}${livePct.toFixed(2)}%)`;
+
+                    const label = `${side} ${qty} @ ${this.formatPrice(entryP, true)} │ P&L: ${pnlStr}`;
+                    const mainBorder = isProfit ? '#00e676' : '#ff3366';
+                    const mainBg = isProfit ? 'rgba(0, 38, 22, 0.92)' : 'rgba(46, 8, 16, 0.92)';
+
+                    ctx.font = 'bold 11px Inter, monospace';
+                    const textW = ctx.measureText(label).width;
+                    const closeW = 24;
+                    const addTpW = !item.take_profit ? 34 : 0;
+                    const addSlW = !item.stop_loss ? 34 : 0;
+                    const pillW = textW + 16;
+                    const totalW = pillW + closeW + addTpW + addSlW + (addTpW ? 4 : 0) + (addSlW ? 4 : 0) + 4;
+                    const pillX = Math.max(8, chartRight - totalW - 10);
+                    const pillY = entryY - 11;
+                    const pillH = 22;
+
+                    // Main Running PnL Entry Badge
+                    ctx.fillStyle = mainBg;
+                    ctx.strokeStyle = mainBorder;
+                    ctx.lineWidth = 1.5;
+                    this.roundRect(ctx, pillX, pillY, pillW, pillH, 4);
+                    ctx.fill();
+                    ctx.stroke();
+                    ctx.fillStyle = '#ffffff';
+                    ctx.textAlign = 'left';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(label, pillX + 8, entryY);
+
+                    let cursorX = pillX + pillW + 4;
+
+                    // Quick [+TP] pill if no TP yet
+                    if (addTpW > 0) {
+                        ctx.fillStyle = 'rgba(0, 230, 118, 0.2)';
+                        ctx.strokeStyle = '#00e676';
+                        ctx.lineWidth = 1;
+                        this.roundRect(ctx, cursorX, pillY, addTpW, pillH, 4);
+                        ctx.fill();
+                        ctx.stroke();
+                        ctx.fillStyle = '#00ff88';
+                        ctx.font = 'bold 10px Inter, monospace';
+                        ctx.textAlign = 'center';
+                        ctx.fillText('+TP', cursorX + addTpW / 2, entryY);
+                        this._interactiveHitBoxes.push({
+                            action: 'add_tp',
+                            item,
+                            x: cursorX, y: pillY, w: addTpW, h: pillH
+                        });
+                        cursorX += addTpW + 4;
+                    }
+
+                    // Quick [+SL] pill if no SL yet
+                    if (addSlW > 0) {
+                        ctx.fillStyle = 'rgba(255, 23, 68, 0.2)';
+                        ctx.strokeStyle = '#ff1744';
+                        ctx.lineWidth = 1;
+                        this.roundRect(ctx, cursorX, pillY, addSlW, pillH, 4);
+                        ctx.fill();
+                        ctx.stroke();
+                        ctx.fillStyle = '#ff6b81';
+                        ctx.font = 'bold 10px Inter, monospace';
+                        ctx.textAlign = 'center';
+                        ctx.fillText('+SL', cursorX + addSlW / 2, entryY);
+                        this._interactiveHitBoxes.push({
+                            action: 'add_sl',
+                            item,
+                            x: cursorX, y: pillY, w: addSlW, h: pillH
+                        });
+                        cursorX += addSlW + 4;
+                    }
+
+                    // 1-Click Close Running Position [✕] pill
+                    ctx.fillStyle = 'rgba(255, 23, 68, 0.85)';
+                    ctx.strokeStyle = '#ff4d6d';
+                    ctx.lineWidth = 1;
+                    this.roundRect(ctx, cursorX, pillY, closeW, pillH, 4);
+                    ctx.fill();
+                    ctx.stroke();
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = 'bold 11px Inter, sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('✕', cursorX + closeW / 2, entryY);
+                    this._interactiveHitBoxes.push({
+                        action: 'close_pos',
+                        item,
+                        x: cursorX, y: pillY, w: closeW, h: pillH
+                    });
+                } else {
+                    // Pending Limit Order with [DRAG] & [✕ Cancel Order]
+                    const label = `LIMIT ${side} ${qty} @ ${this.formatPrice(entryP, true)} [DRAG]`;
+                    ctx.font = 'bold 11px Inter, monospace';
+                    const pillW = ctx.measureText(label).width + 16;
+                    const closeW = 24;
+                    const pillX = Math.max(8, chartRight - pillW - closeW - 14);
+                    const pillY = entryY - 11;
+                    const pillH = 22;
+
+                    ctx.fillStyle = 'rgba(0, 26, 38, 0.92)';
+                    ctx.strokeStyle = '#00f0ff';
+                    ctx.lineWidth = 1.5;
+                    this.roundRect(ctx, pillX, pillY, pillW, pillH, 4);
+                    ctx.fill();
+                    ctx.stroke();
+                    ctx.fillStyle = '#ffffff';
+                    ctx.textAlign = 'left';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(label, pillX + 8, entryY);
+
+                    const closeX = pillX + pillW + 4;
+                    ctx.fillStyle = 'rgba(255, 23, 68, 0.85)';
+                    ctx.strokeStyle = '#ff4d6d';
+                    ctx.lineWidth = 1;
+                    this.roundRect(ctx, closeX, pillY, closeW, pillH, 4);
+                    ctx.fill();
+                    ctx.stroke();
+                    ctx.fillStyle = '#ffffff';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('✕', closeX + closeW / 2, entryY);
+
+                    this._interactiveHitBoxes.push({
+                        action: 'cancel_order',
+                        item,
+                        x: closeX, y: pillY, w: closeW, h: pillH
+                    });
+                    item._limitHit = { y: entryY, price: entryP, xMax: closeX };
+                }
+                ctx.restore();
+            }
 
             if (item.take_profit) {
                 const tpP = item.take_profit;
                 const tpY = this.priceToY(tpP);
-                const diff = side === 'BUY' ? (tpP - entryP) : (entryP - tpP);
-                const pnl = diff * qty;
-                const pnlPct = (diff / entryP) * 100;
+                if (tpY >= 4 && tpY <= this.chartHeight - 4) {
+                    const diff = side === 'BUY' ? (tpP - entryP) : (entryP - tpP);
+                    const pnl = diff * qty;
+                    const pnlPct = (diff / entryP) * 100;
 
-                ctx.save();
-                ctx.strokeStyle = '#00e676';
-                ctx.lineWidth = 2;
-                ctx.setLineDash([4, 2]);
-                ctx.shadowColor = 'rgba(0, 230, 118, 0.5)';
-                ctx.shadowBlur = 6;
-                ctx.beginPath();
-                ctx.moveTo(0, tpY);
-                ctx.lineTo(chartRight, tpY);
-                ctx.stroke();
+                    ctx.save();
+                    ctx.strokeStyle = '#00e676';
+                    ctx.lineWidth = 2;
+                    ctx.setLineDash([4, 2]);
+                    ctx.shadowColor = 'rgba(0, 230, 118, 0.5)';
+                    ctx.shadowBlur = 6;
+                    ctx.beginPath();
+                    ctx.moveTo(0, tpY);
+                    ctx.lineTo(chartRight, tpY);
+                    ctx.stroke();
+                    ctx.shadowBlur = 0;
 
-                const label = `TP: $${tpP.toFixed(2)} (+${pnlPct.toFixed(1)}%) +$${pnl.toFixed(2)} [DRAG]`;
-                this.drawOrderBadge(ctx, chartRight - 225, tpY, label, '#00e676', '#002914', true);
-                ctx.restore();
+                    const label = `TP: ${this.formatPrice(tpP, true)} (${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%) ${pnl >= 0 ? '+' : '-'}${curSym}${this.formatPrice(Math.abs(pnl))} [DRAG]`;
+                    ctx.font = 'bold 11px Inter, monospace';
+                    const pillW = ctx.measureText(label).width + 16;
+                    const closeW = 24;
+                    const pillX = Math.max(8, chartRight - pillW - closeW - 14);
+                    const pillY = tpY - 10;
+                    const pillH = 20;
 
-                item._tpHit = { y: tpY, price: tpP };
+                    this.drawOrderBadge(ctx, pillX, tpY, label, '#00e676', '#002914', true);
+
+                    const closeX = pillX + pillW + 4;
+                    ctx.fillStyle = 'rgba(0, 41, 20, 0.95)';
+                    ctx.strokeStyle = '#00e676';
+                    ctx.lineWidth = 1.2;
+                    this.roundRect(ctx, closeX, pillY, closeW, pillH, 4);
+                    ctx.fill();
+                    ctx.stroke();
+                    ctx.fillStyle = '#ffffff';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText('✕', closeX + closeW / 2, tpY);
+                    ctx.restore();
+
+                    this._interactiveHitBoxes.push({
+                        action: 'cancel_tp',
+                        item,
+                        x: closeX, y: pillY, w: closeW, h: pillH
+                    });
+                    item._tpHit = { y: tpY, price: tpP, xMax: closeX };
+                }
             }
 
             if (item.stop_loss) {
                 const slP = item.stop_loss;
                 const slY = this.priceToY(slP);
-                const diff = side === 'BUY' ? (entryP - slP) : (slP - entryP);
-                const loss = diff * qty;
-                const lossPct = (diff / entryP) * 100;
+                if (slY >= 4 && slY <= this.chartHeight - 4) {
+                    const diff = side === 'BUY' ? (entryP - slP) : (slP - entryP);
+                    const loss = diff * qty;
+                    const lossPct = (diff / entryP) * 100;
 
-                ctx.save();
-                ctx.strokeStyle = '#ff1744';
-                ctx.lineWidth = 2;
-                ctx.setLineDash([4, 2]);
-                ctx.shadowColor = 'rgba(255, 23, 68, 0.5)';
-                ctx.shadowBlur = 6;
-                ctx.beginPath();
-                ctx.moveTo(0, slY);
-                ctx.lineTo(chartRight, slY);
-                ctx.stroke();
+                    ctx.save();
+                    ctx.strokeStyle = '#ff1744';
+                    ctx.lineWidth = 2;
+                    ctx.setLineDash([4, 2]);
+                    ctx.shadowColor = 'rgba(255, 23, 68, 0.5)';
+                    ctx.shadowBlur = 6;
+                    ctx.beginPath();
+                    ctx.moveTo(0, slY);
+                    ctx.lineTo(chartRight, slY);
+                    ctx.stroke();
+                    ctx.shadowBlur = 0;
 
-                const label = `SL: $${slP.toFixed(2)} (-${lossPct.toFixed(1)}%) -$${loss.toFixed(2)} [DRAG]`;
-                this.drawOrderBadge(ctx, chartRight - 225, slY, label, '#ff1744', '#2b0008', true);
-                ctx.restore();
+                    const label = `SL: ${this.formatPrice(slP, true)} (-${lossPct.toFixed(1)}%) -${curSym}${this.formatPrice(Math.abs(loss))} [DRAG]`;
+                    ctx.font = 'bold 11px Inter, monospace';
+                    const pillW = ctx.measureText(label).width + 16;
+                    const closeW = 24;
+                    const pillX = Math.max(8, chartRight - pillW - closeW - 14);
+                    const pillY = slY - 10;
+                    const pillH = 20;
 
-                item._slHit = { y: slY, price: slP };
+                    this.drawOrderBadge(ctx, pillX, slY, label, '#ff1744', '#2b0008', true);
+
+                    const closeX = pillX + pillW + 4;
+                    ctx.fillStyle = 'rgba(43, 0, 8, 0.95)';
+                    ctx.strokeStyle = '#ff1744';
+                    ctx.lineWidth = 1.2;
+                    this.roundRect(ctx, closeX, pillY, closeW, pillH, 4);
+                    ctx.fill();
+                    ctx.stroke();
+                    ctx.fillStyle = '#ffffff';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText('✕', closeX + closeW / 2, slY);
+                    ctx.restore();
+
+                    this._interactiveHitBoxes.push({
+                        action: 'cancel_sl',
+                        item,
+                        x: closeX, y: pillY, w: closeW, h: pillH
+                    });
+                    item._slHit = { y: slY, price: slP, xMax: closeX };
+                }
             }
         });
     }
@@ -1815,28 +2025,16 @@ class OpenChart3D {
         ctx.lineTo(chartRight, timelineY);
         ctx.stroke();
 
-        // Current Market Price Pill
-        if (this.candles.length) {
-            const lastCandle = this.candles[this.candles.length - 1];
-            const liveY = this.priceToY(lastCandle.close);
-            const isBullish = lastCandle.close >= lastCandle.open;
-            const badgeColor = isBullish ? '#00e676' : '#ff1744';
+        // Clip right price axis strictly inside main chart area (above subpane & bottom timeline)
+        const priceRailBottom = Math.max(40, this.chartHeight || timelineY);
+        ctx.beginPath();
+        ctx.rect(chartRight, 0, this.priceAxisWidth, priceRailBottom);
+        ctx.clip();
 
-            ctx.fillStyle = badgeColor;
-            ctx.shadowColor = badgeColor;
-            ctx.shadowBlur = 8;
-            this.roundRect(ctx, chartRight + 2, liveY - 10, this.priceAxisWidth - 4, 20, 4);
-            ctx.fill();
-
-            ctx.fillStyle = '#000000';
-            ctx.font = 'bold 11px Inter, monospace';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(this.formatPrice(lastCandle.close), chartRight + (this.priceAxisWidth / 2), liveY);
-        }
-
-        // Price Axis Ticks
-        ctx.fillStyle = this.options.textColor;
+        // Price Axis Ticks (Clean crisp neutral text, zero stray glow shadow)
+        ctx.shadowBlur = 0;
+        ctx.shadowColor = 'transparent';
+        ctx.fillStyle = this.options.textColor || '#8a99ad';
         ctx.font = '10px Inter, monospace';
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
@@ -1846,7 +2044,54 @@ class OpenChart3D {
         for (let i = 0; i <= stepCount; i++) {
             const p = this.priceRange.min + i * pStep;
             const y = this.priceToY(p);
-            ctx.fillText(this.formatPrice(p), chartRight + 6, y);
+            if (y >= 10 && y <= priceRailBottom - 10) {
+                ctx.fillText(this.formatPrice(p), chartRight + 6, y);
+            }
+        }
+
+        // Current Market Price Pill (Drawn cleanly above grid ticks)
+        if (this.candles.length) {
+            const lastCandle = this.candles[this.candles.length - 1];
+            const liveY = Math.max(12, Math.min(priceRailBottom - 12, this.priceToY(lastCandle.close)));
+            const isBullish = lastCandle.close >= lastCandle.open;
+            const badgeColor = isBullish ? '#00e676' : '#ff1744';
+
+            ctx.fillStyle = badgeColor;
+            ctx.shadowColor = badgeColor;
+            ctx.shadowBlur = 8;
+            this.roundRect(ctx, chartRight + 2, liveY - 10, this.priceAxisWidth - 4, 20, 4);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            ctx.shadowColor = 'transparent';
+
+            ctx.fillStyle = '#000000';
+            ctx.font = 'bold 11px Inter, monospace';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(this.formatPrice(lastCandle.close), chartRight + (this.priceAxisWidth / 2), liveY);
+        }
+
+        // Interactive Floating '+' Order Trigger on Price Scale when hovering
+        this._pricePlusHit = null;
+        if (this.mousePos && this.mousePos.x >= 0 && this.mousePos.y >= 12 && this.mousePos.y <= priceRailBottom - 12) {
+            const plusX = chartRight - 14;
+            const plusY = this.mousePos.y;
+            this._pricePlusHit = { x: plusX, y: plusY, r: 10, price: this.yToPrice(plusY) };
+
+            ctx.restore(); // exit price axis clip to draw '+' just left of price rail
+            ctx.save();
+            ctx.fillStyle = '#1e293b';
+            ctx.strokeStyle = '#00f0ff';
+            ctx.lineWidth = 1.2;
+            ctx.beginPath();
+            ctx.arc(plusX, plusY, 9, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            ctx.fillStyle = '#00f0ff';
+            ctx.font = 'bold 13px Inter, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('+', plusX, plusY + 0.5);
         }
         ctx.restore();
     }
@@ -1868,6 +2113,70 @@ class OpenChart3D {
 
     // --- Interactive Mouse & Touch Handlers ---
 
+    _handleInteractiveHitClick(x, y, clientX, clientY) {
+        // Check Jump to Live Candle Button
+        if (this.jumpButtonRect && !this.isLiveCandleVisible()) {
+            const dist = Math.hypot(x - this.jumpButtonRect.x, y - this.jumpButtonRect.y);
+            if (dist <= this.jumpButtonRect.r + 5) {
+                this.centerOnLiveCandle();
+                return true;
+            }
+        }
+
+        // Check '+' Price Scale Button -> open order menu at cursor price
+        if (this._pricePlusHit && Math.hypot(x - this._pricePlusHit.x, y - this._pricePlusHit.y) <= this._pricePlusHit.r + 5) {
+            if (this.onContextMenuRequest) {
+                this.onContextMenuRequest(clientX, clientY, this._pricePlusHit.price, this);
+            }
+            return true;
+        }
+
+        // Check On-Chart Close / Cancel TP / Cancel SL / Cancel Limit / +TP / +SL buttons
+        if (this._interactiveHitBoxes && this._interactiveHitBoxes.length) {
+            for (const box of this._interactiveHitBoxes) {
+                if (x >= box.x - 4 && x <= box.x + box.w + 4 && y >= box.y - 4 && y <= box.y + box.h + 4) {
+                    if (box.action === 'close_pos' && this.onOrderClose) {
+                        this.onOrderClose(box.item.id, box.item.symbol);
+                    } else if (box.action === 'cancel_order' && this.onOrderCancel) {
+                        this.onOrderCancel(box.item.id);
+                    } else if (box.action === 'cancel_tp' && this.onOrderCancelTpSl) {
+                        this.onOrderCancelTpSl(box.item.id, 'tp');
+                    } else if (box.action === 'cancel_sl' && this.onOrderCancelTpSl) {
+                        this.onOrderCancelTpSl(box.item.id, 'sl');
+                    } else if (box.action === 'add_tp' && this.onQuickAttachTpSl) {
+                        this.onQuickAttachTpSl(box.item, 'tp');
+                    } else if (box.action === 'add_sl' && this.onQuickAttachTpSl) {
+                        this.onQuickAttachTpSl(box.item, 'sl');
+                    }
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    _tryStartOrderLineDrag(x, y) {
+        const allItems = [...this.positions, ...this.orders];
+        for (let item of allItems) {
+            if (item._tpHit && Math.abs(y - item._tpHit.y) < 13 && (!item._tpHit.xMax || x < item._tpHit.xMax)) {
+                this.draggedLine = { type: 'tp', item: item };
+                this.canvas.style.cursor = 'ns-resize';
+                return true;
+            }
+            if (item._slHit && Math.abs(y - item._slHit.y) < 13 && (!item._slHit.xMax || x < item._slHit.xMax)) {
+                this.draggedLine = { type: 'sl', item: item };
+                this.canvas.style.cursor = 'ns-resize';
+                return true;
+            }
+            if (item._limitHit && Math.abs(y - item._limitHit.y) < 13 && (!item._limitHit.xMax || x < item._limitHit.xMax)) {
+                this.draggedLine = { type: 'limit', item: item };
+                this.canvas.style.cursor = 'ns-resize';
+                return true;
+            }
+        }
+        return false;
+    }
+
     onMouseDown(e) {
         if (e.button !== 0) return;
 
@@ -1875,14 +2184,8 @@ class OpenChart3D {
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
 
-        // 0. Check if user clicked on Jump to Live Candle Button
-        if (this.jumpButtonRect && !this.isLiveCandleVisible()) {
-            const dist = Math.hypot(x - this.jumpButtonRect.x, y - this.jumpButtonRect.y);
-            if (dist <= this.jumpButtonRect.r + 4) {
-                this.centerOnLiveCandle();
-                return;
-            }
-        }
+        // 0. Interactive chart pills (Jump, +, Close, Cancel Order/TP/SL, +TP/+SL)
+        if (this._handleInteractiveHitClick(x, y, e.clientX, e.clientY)) return;
 
         // 1. Check if user clicked on BOTTOM TIMELINE AXIS -> Drag to scale candle width / time
         if (y >= this.height - this.timeAxisHeight) {
@@ -1902,20 +2205,8 @@ class OpenChart3D {
             return;
         }
 
-        // 3. Check Draggable Order TP/SL handles
-        const allItems = [...this.positions, ...this.orders];
-        for (let item of allItems) {
-            if (item._tpHit && Math.abs(y - item._tpHit.y) < 14) {
-                this.draggedLine = { type: 'tp', item: item };
-                this.canvas.style.cursor = 'ns-resize';
-                return;
-            }
-            if (item._slHit && Math.abs(y - item._slHit.y) < 14) {
-                this.draggedLine = { type: 'sl', item: item };
-                this.canvas.style.cursor = 'ns-resize';
-                return;
-            }
-        }
+        // 3. Check Draggable Order TP / SL / Limit handles
+        if (this._tryStartOrderLineDrag(x, y)) return;
 
         // 4. Handle Marking Tools (Trendlines, Horizontal, Fibonacci, Long/Short Position)
         if (this.activeTool !== 'cursor') {
@@ -2024,13 +2315,15 @@ class OpenChart3D {
             return;
         }
 
-        // 3. Dragging TP or SL handle
+        // 3. Dragging TP, SL, or Limit handle
         if (this.draggedLine) {
-            const newPrice = this.yToPrice(this.mousePos.y);
+            const newPrice = Math.max(0.000001, this.yToPrice(this.mousePos.y));
             if (this.draggedLine.type === 'tp') {
                 this.draggedLine.item.take_profit = newPrice;
             } else if (this.draggedLine.type === 'sl') {
                 this.draggedLine.item.stop_loss = newPrice;
+            } else if (this.draggedLine.type === 'limit') {
+                this.draggedLine.item.price = newPrice;
             }
             this.render();
             return;
@@ -2082,17 +2375,31 @@ class OpenChart3D {
             return;
         }
 
+        // Hover over On-Chart Action Pills or '+' Price Trigger
+        if (this._pricePlusHit && Math.hypot(this.mousePos.x - this._pricePlusHit.x, this.mousePos.y - this._pricePlusHit.y) <= this._pricePlusHit.r + 5) {
+            this.canvas.style.cursor = 'pointer';
+            return;
+        }
+        if (this._interactiveHitBoxes && this._interactiveHitBoxes.some(b =>
+            this.mousePos.x >= b.x - 4 && this.mousePos.x <= b.x + b.w + 4 &&
+            this.mousePos.y >= b.y - 4 && this.mousePos.y <= b.y + b.h + 4
+        )) {
+            this.canvas.style.cursor = 'pointer';
+            return;
+        }
+
         // Order Handle Hover
         const allItems = [...this.positions, ...this.orders];
         let hoveringHandle = false;
         for (let item of allItems) {
-            if ((item._tpHit && Math.abs(this.mousePos.y - item._tpHit.y) < 14) ||
-                (item._slHit && Math.abs(this.mousePos.y - item._slHit.y) < 14)) {
+            if ((item._tpHit && Math.abs(this.mousePos.y - item._tpHit.y) < 13) ||
+                (item._slHit && Math.abs(this.mousePos.y - item._slHit.y) < 13) ||
+                (item._limitHit && Math.abs(this.mousePos.y - item._limitHit.y) < 13)) {
                 hoveringHandle = true;
                 break;
             }
         }
-        this.canvas.style.cursor = hoveringHandle ? 'ns-resize' : (this.activeTool !== 'cursor' ? 'crosshair' : 'crosshair');
+        this.canvas.style.cursor = hoveringHandle ? 'ns-resize' : 'crosshair';
     }
 
     onMouseUp() {
@@ -2107,7 +2414,11 @@ class OpenChart3D {
         }
         if (this.draggedLine) {
             const item = this.draggedLine.item;
-            if (this.onOrderUpdate) {
+            if (this.draggedLine.type === 'limit') {
+                if (this.onLimitPriceUpdate) {
+                    this.onLimitPriceUpdate(item.id, item.price);
+                }
+            } else if (this.onOrderUpdate) {
                 this.onOrderUpdate(item.id, item.take_profit, item.stop_loss);
             }
             this.draggedLine = null;
@@ -2206,6 +2517,12 @@ class OpenChart3D {
             this.touchStartY = touch.clientY;
             this.clearTouchLongPress();
 
+            // Check Interactive On-Chart Pills (Close, Cancel Order/TP/SL, +TP/+SL, Jump) on single tap
+            if (this._handleInteractiveHitClick(x, y, touch.clientX, touch.clientY)) return;
+
+            // Check TP / SL / Limit Line drag on touch
+            if (this._tryStartOrderLineDrag(x, y)) return;
+
             // Long-press detection (520ms hold without moving -> open context menu on mobile)
             this.touchLongPressTimer = setTimeout(() => {
                 const ev = new MouseEvent('contextmenu', {
@@ -2227,10 +2544,12 @@ class OpenChart3D {
                 this.axisDragStartZoom = this.userPriceZoom;
             } else {
                 this.isDraggingChart = true;
+                this.velocityX = 0;
+                this.velocityY = 0;
                 this.dragStartX = x;
                 this.dragStartY = y;
                 this.initialOffsetX = this.offsetX;
-                this.initialUserPriceOffset = this.userPriceOffset || 0;
+                this.initialOffsetY = this.offsetY;
             }
         }
     }
@@ -2270,6 +2589,20 @@ class OpenChart3D {
                 this.clearTouchLongPress();
             }
 
+            if (this.draggedLine) {
+                this.clearTouchLongPress();
+                const newPrice = Math.max(0.000001, this.yToPrice(y));
+                if (this.draggedLine.type === 'tp') {
+                    this.draggedLine.item.take_profit = newPrice;
+                } else if (this.draggedLine.type === 'sl') {
+                    this.draggedLine.item.stop_loss = newPrice;
+                } else if (this.draggedLine.type === 'limit') {
+                    this.draggedLine.item.price = newPrice;
+                }
+                this.render();
+                return;
+            }
+
             if (this.isDraggingTimeAxis) {
                 const deltaX = x - this.axisDragStartX;
                 const factor = Math.exp(deltaX * 0.005);
@@ -2285,11 +2618,9 @@ class OpenChart3D {
             } else if (this.isDraggingChart) {
                 // Free 2D Pan on touch: Left/Right + Up/Down!
                 const deltaX = this.dragStartX - x;
-                this.offsetX = Math.max(0, this.initialOffsetX + deltaX);
-
                 const deltaY = y - this.dragStartY;
-                const pScale = this.priceScale || 1;
-                this.userPriceOffset = (this.initialUserPriceOffset || 0) + (deltaY / pScale);
+                this.offsetX = Math.max(0, this.initialOffsetX + deltaX);
+                this.offsetY = this.initialOffsetY + deltaY;
                 this.autoScale = false;
                 this.render();
             }
