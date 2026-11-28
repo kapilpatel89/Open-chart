@@ -402,6 +402,48 @@ if ($action === 'candles') {
     exit;
 }
 
+// 1B-3. COINDCX CRYPTO MARKETS PROXY (Returns all 600+ USDT pairs with CORS for GitHub Pages)
+if ($action === 'coindcx_markets') {
+    $url = "https://api.coindcx.com/exchange/ticker";
+    $res = null;
+    if (function_exists('curl_init')) {
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_USERAGENT, 'OpenChart-Terminal/2.0');
+        curl_setopt($ch, CURLOPT_TIMEOUT, 6);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        $res = curl_exec($ch);
+        curl_close($ch);
+    }
+    $markets = [];
+    if ($res) {
+        $arr = json_decode($res, true);
+        if (is_array($arr)) {
+            $seen = [];
+            foreach ($arr as $t) {
+                $m = $t['market'] ?? '';
+                if (strpos($m, 'USDT') === false) continue;
+                $base = strtoupper(str_replace(['B-', '_USDT', 'USDT'], '', $m));
+                if (!$base || isset($seen[$base])) continue;
+                $lp = floatval($t['last_price'] ?? 0);
+                if ($lp <= 0) continue;
+                $seen[$base] = true;
+                $markets[] = [
+                    'symbol' => "{$base}_USDT",
+                    'name' => "{$base} / USDT",
+                    'last_price' => strval($lp),
+                    'change_24h' => round(floatval($t['change_24_hour'] ?? 0), 2),
+                    'volume' => round(floatval($t['volume'] ?? 0), 2),
+                    'source' => 'coindcx'
+                ];
+            }
+            usort($markets, function($a, $b) { return $b['volume'] <=> $a['volume']; });
+        }
+    }
+    echo json_encode(['status' => 'success', 'count' => count($markets), 'markets' => $markets]);
+    exit;
+}
+
 // 1C. MOST BOUGHT OPTIONS
 if ($action === 'most_bought_options') {
     $und = strtoupper($_GET['underlying'] ?? 'NIFTY');

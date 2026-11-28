@@ -68,6 +68,65 @@ if (close > highestHigh[1])
     strategy.entry("SMC Long", strategy.long)
 if (close < lowestLow[1])
     strategy.entry("SMC Short", strategy.short)
+`,
+
+    macd_vwap: `//@version=5
+strategy("MACD + VWAP Call/Put Flow", overlay=true)
+// Institutional VWAP & MACD Confluence
+vwapVal = ta.vwap(hlc3)
+[macdLine, sigLine, histLine] = ta.macd(close, 12, 26, 9)
+plot(vwapVal, "VWAP", color=#ffd700, linewidth=2)
+
+longCondition = ta.crossover(macdLine, sigLine) and close >= vwapVal
+shortCondition = ta.crossunder(macdLine, sigLine) and close <= vwapVal
+
+if (longCondition)
+    strategy.entry("CALL VWAP", strategy.long)
+if (shortCondition)
+    strategy.entry("PUT VWAP", strategy.short)
+`,
+
+    rsi_bb_sniper: `//@version=5
+strategy("RSI + BB Call/Put Sniper", overlay=true)
+// Volatility + Oscillator Snapback
+[mid, upper, lower] = ta.bb(close, 20, 2.0)
+rsiVal = ta.rsi(close, 14)
+plot(upper, "BB Upper", color=#a855f7, linewidth=1)
+plot(mid, "BB Basis", color=#ffaa00, linewidth=1)
+plot(lower, "BB Lower", color=#a855f7, linewidth=1)
+
+longCondition = close <= lower and rsiVal < 38
+shortCondition = close >= upper and rsiVal > 62
+
+if (longCondition)
+    strategy.entry("CALL Sniper", strategy.long)
+if (shortCondition)
+    strategy.entry("PUT Sniper", strategy.short)
+`,
+
+    liquidity_sweep: `//@version=5
+indicator("Liquidity & Possible SL Zones", overlay=true)
+liqLength = input.int(20, "Liquidity Lookback")
+slLength = input.int(10, "SL Lookback")
+atrLength = input.int(14, "ATR Length")
+atrBuffer = input.float(0.5, "SL ATR Buffer")
+
+buyLiquidity = ta.highest(high[1], liqLength)
+sellLiquidity = ta.lowest(low[1], liqLength)
+atrValue = ta.atr(atrLength)
+buySL = ta.lowest(low[1], slLength) - atrValue * atrBuffer
+sellSL = ta.highest(high[1], slLength) + atrValue * atrBuffer
+
+plot(buyLiquidity, title="Buy Side Liquidity", color=color.orange, linewidth=2, style=plot.style_stepline)
+plot(sellLiquidity, title="Sell Side Liquidity", color=color.aqua, linewidth=2, style=plot.style_stepline)
+plot(buySL, title="BUY Stop Loss", color=color.red, linewidth=2)
+plot(sellSL, title="SELL Stop Loss", color=color.fuchsia, linewidth=2)
+
+buySweep = high > buyLiquidity and close < buyLiquidity
+sellSweep = low < sellLiquidity and close > sellLiquidity
+
+plotshape(buySweep, title="Buy Liquidity Sweep", style=shape.triangledown, location=location.abovebar, color=color.orange, text="BSL")
+plotshape(sellSweep, title="Sell Liquidity Sweep", style=shape.triangleup, location=location.belowbar, color=color.aqua, text="SSL")
 `
 };
 
@@ -217,6 +276,51 @@ class ClientPineEngine {
         return { supertrend, direction };
     }
 
+    static calculateMACD(series, fast = 12, slow = 26, sigLen = 9) {
+        const n = series.length;
+        const emaFast = this.calculateEMA(series, fast);
+        const emaSlow = this.calculateEMA(series, slow);
+        const macdLine = new Array(n).fill(null);
+        const validVals = [];
+        const validIdxs = [];
+        for (let i = 0; i < n; i++) {
+            if (emaFast[i] !== null && emaSlow[i] !== null) {
+                const v = emaFast[i] - emaSlow[i];
+                macdLine[i] = v;
+                validVals.push(v);
+                validIdxs.push(i);
+            }
+        }
+        const signalLine = new Array(n).fill(null);
+        const histLine = new Array(n).fill(null);
+        if (validVals.length >= sigLen) {
+            const sigEma = this.calculateEMA(validVals, sigLen);
+            for (let k = 0; k < sigEma.length; k++) {
+                if (sigEma[k] !== null) {
+                    const origI = validIdxs[k];
+                    signalLine[origI] = sigEma[k];
+                    histLine[origI] = macdLine[origI] - sigEma[k];
+                }
+            }
+        }
+        return { macdLine, signalLine, histLine };
+    }
+
+    static calculateVWAP(highs, lows, closes, volumes) {
+        const n = closes.length;
+        const res = new Array(n).fill(null);
+        let cumPV = 0;
+        let cumV = 0;
+        for (let i = 0; i < n; i++) {
+            const tp = ((highs[i] || closes[i]) + (lows[i] || closes[i]) + closes[i]) / 3;
+            const v = Math.max(1, volumes[i] || 1);
+            cumPV += tp * v;
+            cumV += v;
+            res[i] = cumPV / cumV;
+        }
+        return res;
+    }
+
     static executeScript(code, candles, customInputs = {}, customStyles = {}) {
         if (!candles || !candles.length) {
             return { error: "Candles dataset is empty", plots: [], signals: [], metrics: {}, inputs: {} };
@@ -232,6 +336,11 @@ class ClientPineEngine {
         let scriptTitle = "Pine Script Indicator";
         const metaMatch = code.match(/(?:indicator|strategy)\(\s*["']([^"']+)["']/);
         if (metaMatch) scriptTitle = metaMatch[1];
+
+        const overlayFalse = /overlay\s*=\s*false/i.test(code);
+        const defaultSubPane = overlayFalse
+            ? (/ta\.macd/i.test(code) ? 'macd' : (/ta\.rsi/i.test(code) ? 'rsi' : 'sub'))
+            : 'main';
 
         const env = {
             open: opens, high: highs, low: lows, close: closes, volume: volumes,
@@ -278,9 +387,24 @@ class ClientPineEngine {
             return (!isNaN(p) && p > 0) ? p : fallback;
         };
 
+        const stripOuterParens = (s) => {
+            s = (s || '').trim();
+            while (s.startsWith('(') && s.endsWith(')')) {
+                let depth = 0, wrapsAll = true;
+                for (let k = 0; k < s.length; k++) {
+                    if (s[k] === '(') depth++;
+                    else if (s[k] === ')') depth--;
+                    if (depth === 0 && k < s.length - 1) { wrapsAll = false; break; }
+                }
+                if (wrapsAll) s = s.slice(1, -1).trim();
+                else break;
+            }
+            return s;
+        };
+
         const evalSeriesExpr = (exprStr) => {
             if (!exprStr) return null;
-            exprStr = exprStr.trim();
+            exprStr = stripOuterParens(exprStr);
 
             // 1. Ternary condition: cond ? trueExpr : falseExpr
             if (exprStr.includes('?') && exprStr.includes(':')) {
@@ -462,6 +586,49 @@ class ClientPineEngine {
                 return this.calculateRSI(src, period);
             }
 
+            if (exprStr.startsWith('ta.vwap')) {
+                return this.calculateVWAP(highs, lows, closes, volumes);
+            }
+
+            if (exprStr.startsWith('ta.macd')) {
+                const args = exprStr.match(/\((.*)\)/)?.[1]?.split(',') || [];
+                const src = getShiftedSeries(args[0]) || closes;
+                const fast = resolvePeriod(args[1], 12);
+                const slow = resolvePeriod(args[2], 26);
+                const sig = resolvePeriod(args[3], 9);
+                return this.calculateMACD(src, fast, slow, sig).macdLine;
+            }
+
+            if (exprStr.startsWith('ta.crossover')) {
+                const args = exprStr.match(/\((.*)\)/)?.[1]?.split(',') || [];
+                const s1 = evalSeriesExpr(args[0]);
+                const s2 = evalSeriesExpr(args[1]);
+                const res = new Array(n).fill(false);
+                if (s1 && s2) {
+                    for (let i = 1; i < n; i++) {
+                        if (s1[i] !== null && s2[i] !== null && s1[i - 1] !== null && s2[i - 1] !== null) {
+                            res[i] = (s1[i] > s2[i]) && (s1[i - 1] <= s2[i - 1]);
+                        }
+                    }
+                }
+                return res;
+            }
+
+            if (exprStr.startsWith('ta.crossunder')) {
+                const args = exprStr.match(/\((.*)\)/)?.[1]?.split(',') || [];
+                const s1 = evalSeriesExpr(args[0]);
+                const s2 = evalSeriesExpr(args[1]);
+                const res = new Array(n).fill(false);
+                if (s1 && s2) {
+                    for (let i = 1; i < n; i++) {
+                        if (s1[i] !== null && s2[i] !== null && s1[i - 1] !== null && s2[i - 1] !== null) {
+                            res[i] = (s1[i] < s2[i]) && (s1[i - 1] >= s2[i - 1]);
+                        }
+                    }
+                }
+                return res;
+            }
+
             // 7. Base variable or shifted variable
             const shifted = getShiftedSeries(exprStr);
             if (shifted) {
@@ -485,8 +652,7 @@ class ClientPineEngine {
             if (!line || line.startsWith('//') || line.startsWith('#')) continue;
 
             if (line.startsWith('if ') || line.startsWith('if(')) {
-                const m = line.match(/if\s*\(?([^)]+)\)?/);
-                if (m) currentIfCond = m[1].trim();
+                currentIfCond = stripOuterParens(line.replace(/^if\s*/, ''));
                 continue;
             }
 
@@ -508,20 +674,35 @@ class ClientPineEngine {
                 currentIfCond = null;
             }
 
-            // Multi-variable unpack e.g. [st, dir] = ta.supertrend(...)
+            // Multi-variable unpack e.g. [st, dir] = ta.supertrend(...) or [m, s, h] = ta.macd(...)
             if (line.startsWith('[') && line.includes(']') && line.includes('=')) {
                 const [leftPart, rightPart] = line.split('=', 2);
                 const vars = leftPart.replace('[', '').replace(']', '').split(',').map(v => v.trim());
                 const right = rightPart.trim();
+                const fnArgs = right.match(/\((.*)\)/)?.[1]?.split(',').map(a => a.trim()) || [];
                 if (right.includes('ta.supertrend')) {
-                    const res = this.calculateSupertrend(highs, lows, closes);
+                    const stMult = parseFloat(fnArgs[0]) && fnArgs.length >= 2 ? (parseFloat(fnArgs[1]) || 3.0) : 3.0;
+                    const stLen = resolvePeriod(fnArgs[0], 10);
+                    const res = this.calculateSupertrend(highs, lows, closes, stLen, stMult);
                     if (vars[0]) env[vars[0]] = res.supertrend;
                     if (vars[1]) env[vars[1]] = res.direction;
                 } else if (right.includes('ta.bb')) {
-                    const res = this.calculateBollinger(closes);
+                    const src = getShiftedSeries(fnArgs[0]) || closes;
+                    const bbLen = resolvePeriod(fnArgs[1], 20);
+                    const bbMult = parseFloat(fnArgs[2]) || 2.0;
+                    const res = this.calculateBollinger(src, bbLen, bbMult);
                     if (vars[0]) env[vars[0]] = res.basis;
                     if (vars[1]) env[vars[1]] = res.upper;
                     if (vars[2]) env[vars[2]] = res.lower;
+                } else if (right.includes('ta.macd')) {
+                    const src = getShiftedSeries(fnArgs[0]) || closes;
+                    const fast = resolvePeriod(fnArgs[1], 12);
+                    const slow = resolvePeriod(fnArgs[2], 26);
+                    const sig = resolvePeriod(fnArgs[3], 9);
+                    const res = this.calculateMACD(src, fast, slow, sig);
+                    if (vars[0]) env[vars[0]] = res.macdLine;
+                    if (vars[1]) env[vars[1]] = res.signalLine;
+                    if (vars[2]) env[vars[2]] = res.histLine;
                 }
                 continue;
             }
@@ -596,6 +777,9 @@ class ClientPineEngine {
 
                     const dataSeries = evalSeriesExpr(seriesExpr);
                     if (dataSeries && Array.isArray(dataSeries) && isVisible) {
+                        const targetPane = defaultSubPane !== 'main'
+                            ? defaultSubPane
+                            : (/ta\.rsi|rsi/i.test(seriesExpr + ' ' + title) && Math.max(...dataSeries.filter(v => v !== null && isFinite(v))) <= 105 && Math.min(...dataSeries.filter(v => v !== null && isFinite(v))) >= -5 && overlayFalse ? 'rsi' : 'main');
                         plots.push({
                             id: title,
                             title: title,
@@ -604,7 +788,7 @@ class ClientPineEngine {
                             linewidth: linewidth,
                             style: isStepline ? 'stepline' : 'line',
                             visible: isVisible,
-                            pane: 'main',
+                            pane: targetPane,
                             data: times.map((t, i) => ({ time: t, value: dataSeries[i] })).filter(d => d.value !== null && isFinite(d.value))
                         });
                     }
@@ -724,7 +908,19 @@ class ClientPineEngine {
     static evalBarCondition(cond, env, bar) {
         if (!cond) return false;
         if (typeof cond === 'boolean') return cond;
+        if (Array.isArray(cond)) return Boolean(cond[bar]);
         if (typeof cond !== 'string') return false;
+        cond = cond.trim();
+        while (cond.startsWith('(') && cond.endsWith(')')) {
+            let depth = 0, wraps = true;
+            for (let k = 0; k < cond.length; k++) {
+                if (cond[k] === '(') depth++;
+                else if (cond[k] === ')') depth--;
+                if (depth === 0 && k < cond.length - 1) { wraps = false; break; }
+            }
+            if (wraps) cond = cond.slice(1, -1).trim();
+            else break;
+        }
 
         if (cond.includes(' and ')) {
             return cond.split(' and ').every(part => this.evalBarCondition(part.trim(), env, bar));
@@ -1424,9 +1620,13 @@ plot(support, title="Support", color=color.green, linewidth=2)
             }
         });
 
-        // Apply to main chart
+        // Apply to main chart (preserving quick indicators)
         if (this.chart) {
-            this.chart.setIndicators(combinedPlots);
+            if (typeof this.chart.setPineIndicators === 'function') {
+                this.chart.setPineIndicators(combinedPlots);
+            } else {
+                this.chart.setIndicators(combinedPlots);
+            }
             this.chart.setSignals(combinedSignals);
         }
 
@@ -1434,7 +1634,11 @@ plot(support, title="Support", color=color.green, linewidth=2)
         if (window.app && window.app.panes) {
             window.app.panes.forEach(pane => {
                 if (pane.chart) {
-                    pane.chart.setIndicators(combinedPlots);
+                    if (typeof pane.chart.setPineIndicators === 'function') {
+                        pane.chart.setPineIndicators(combinedPlots);
+                    } else {
+                        pane.chart.setIndicators(combinedPlots);
+                    }
                     pane.chart.setSignals(combinedSignals);
                 }
             });
@@ -1747,5 +1951,5 @@ if (typeof window !== 'undefined') {
     window.ClientPineEngine = ClientPineEngine;
 }
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { ClientPineEngine, PineEditor };
+    module.exports = { ClientPineEngine, PineScriptIDE };
 }

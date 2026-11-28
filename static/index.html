@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Open Chart - 3D Candlestick Trading Terminal (Alternative to TradingView)</title>
-    <link rel="stylesheet" href="style.css?v=2.3.0">
+    <link rel="stylesheet" href="style.css?v=2.4.0">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
@@ -47,92 +47,103 @@
                 <div class="live-ticker-info">
                     <span id="ticker-price" class="ticker-price">--</span>
                     <span id="ticker-change" class="ticker-change">--%</span>
-                    <div class="ticker-stats">
-                        <span>24h H: <b id="ticker-high">--</b></span>
-                        <span>24h L: <b id="ticker-low">--</b></span>
-                        <span>Vol: <b id="ticker-vol">--</b></span>
+                    <div class="ticker-stats" title="Session High, Low and Volume">
+                        <span>H: <b id="ticker-high">--</b></span>
+                        <span>L: <b id="ticker-low">--</b></span>
+                        <span>V: <b id="ticker-vol">--</b></span>
                     </div>
                 </div>
             </div>
 
-            <!-- Timeframe Pills -->
-            <div class="timeframe-container">
-                <button class="tf-btn" data-tf="1m">1m</button>
-                <button class="tf-btn" data-tf="5m">5m</button>
-                <button class="tf-btn" data-tf="15m">15m</button>
-                <button class="tf-btn active" data-tf="1h">1H</button>
-                <button class="tf-btn" data-tf="4h">4H</button>
-                <button class="tf-btn" data-tf="1d">1D</button>
-            </div>
-
-            <!-- Indicators Dropdown -->
-            <div class="dropdown-container">
-                <button id="btn-indicators-menu" class="btn-secondary">
-                    <span>📊 Indicators ▾</span>
-                </button>
-                <div id="indicators-dropdown" class="dropdown-menu">
-                    <label class="dropdown-item"><input type="checkbox" id="ind-ema9" checked> EMA 9 (Cyan)</label>
-                    <label class="dropdown-item"><input type="checkbox" id="ind-ema21" checked> EMA 21 (Orange)</label>
-                    <label class="dropdown-item"><input type="checkbox" id="ind-ema50"> EMA 50 (Purple)</label>
-                    <label class="dropdown-item"><input type="checkbox" id="ind-ema200"> EMA 200 (Gold)</label>
-                    <label class="dropdown-item"><input type="checkbox" id="ind-bb"> Bollinger Bands (20, 2)</label>
-                    <label class="dropdown-item"><input type="checkbox" id="ind-supertrend"> Supertrend (10, 3)</label>
-                    <label class="dropdown-item"><input type="checkbox" id="ind-rsi"> RSI Sub-Pane (14)</label>
+            <div class="topbar-center">
+                <!-- Timeframe Pills -->
+                <div class="timeframe-container">
+                    <button class="tf-btn" data-tf="1m">1m</button>
+                    <button class="tf-btn" data-tf="5m">5m</button>
+                    <button class="tf-btn" data-tf="15m">15m</button>
+                    <button class="tf-btn active" data-tf="1h">1H</button>
+                    <button class="tf-btn" data-tf="4h">4H</button>
+                    <button class="tf-btn" data-tf="1d">1D</button>
                 </div>
-            </div>
 
-                        <!-- Candle Drawing Style Selector -->
-            <div class="dropdown-container">
-                <button id="btn-candle-style-menu" class="btn-secondary" title="Switch Candlestick Drawing Style">
-                    <span id="selected-candle-style">🕯 Normal ▾</span>
-                </button>
-                <div id="candle-style-dropdown" class="dropdown-menu">
-                    <div class="dropdown-item active" data-style="normal">🕯 Normal (TradingView Crisp)</div>
-                    <div class="dropdown-item" data-style="hollow">⚪ Hollow Candles</div>
-                    <div class="dropdown-item" data-style="3d">◈ 3D Cylinder</div>
+                <!-- Indicators Dropdown (All Working Overlays & Oscillators) -->
+                <div class="dropdown-container">
+                    <button id="btn-indicators-menu" class="btn-secondary" title="Toggle Chart Indicators & Sub-Panes">
+                        <span>📊 Indicators ▾</span>
+                    </button>
+                    <div id="indicators-dropdown" class="dropdown-menu">
+                        <div class="dropdown-section-title">Trend Overlays</div>
+                        <label class="dropdown-item"><input type="checkbox" id="ind-ema9" checked> EMA 9 (Cyan)</label>
+                        <label class="dropdown-item"><input type="checkbox" id="ind-ema21" checked> EMA 21 (Orange)</label>
+                        <label class="dropdown-item"><input type="checkbox" id="ind-ema50"> EMA 50 (Purple)</label>
+                        <label class="dropdown-item"><input type="checkbox" id="ind-ema200"> EMA 200 (Gold)</label>
+                        <label class="dropdown-item"><input type="checkbox" id="ind-vwap"> VWAP (Institutional)</label>
+                        <label class="dropdown-item"><input type="checkbox" id="ind-bb"> Bollinger Bands (20, 2)</label>
+                        <label class="dropdown-item"><input type="checkbox" id="ind-supertrend"> Supertrend (10, 3)</label>
+                        <div class="dropdown-divider"></div>
+                        <div class="dropdown-section-title">Oscillator Sub-Panes</div>
+                        <label class="dropdown-item"><input type="checkbox" id="ind-rsi"> RSI (14)</label>
+                        <label class="dropdown-item"><input type="checkbox" id="ind-macd"> MACD (12, 26, 9)</label>
+                    </div>
                 </div>
-            </div>
 
-            <!-- Multi-Chart Layout Selector -->
-            <div class="dropdown-container">
-                <button id="btn-layout-menu" class="btn-secondary" title="Multi-Chart Split View">
-                    <span id="selected-layout-label">◫ Layout (1) ▾</span>
-                </button>
-                <div id="layout-dropdown" class="dropdown-menu">
-                    <div class="dropdown-item active" data-layout="1">◫ 1 Single Chart</div>
-                    <div class="dropdown-item" data-layout="2h">❚❚ 2 Charts (Split Horizontal)</div>
-                    <div class="dropdown-item" data-layout="2v">〓 2 Charts (Stack Vertical)</div>
-                    <div class="dropdown-item" data-layout="4">▦ 4 Charts (Quad 2x2 Grid)</div>
+                <!-- Candle Drawing Style Selector -->
+                <div class="dropdown-container">
+                    <button id="btn-candle-style-menu" class="btn-secondary" title="Switch Candlestick Drawing Style">
+                        <span id="selected-candle-style">🕯 Normal ▾</span>
+                    </button>
+                    <div id="candle-style-dropdown" class="dropdown-menu">
+                        <div class="dropdown-item active" data-style="normal">🕯 Normal (TradingView)</div>
+                        <div class="dropdown-item" data-style="hollow">⚪ Hollow Candles</div>
+                        <div class="dropdown-item" data-style="3d">◈ 3D Cylinder</div>
+                    </div>
                 </div>
+
+                <!-- Multi-Chart Layout Selector -->
+                <div class="dropdown-container">
+                    <button id="btn-layout-menu" class="btn-secondary" title="Multi-Chart Split View">
+                        <span id="selected-layout-label">◫ 1 ▾</span>
+                    </button>
+                    <div id="layout-dropdown" class="dropdown-menu">
+                        <div class="dropdown-item active" data-layout="1">◫ 1 Single Chart</div>
+                        <div class="dropdown-item" data-layout="2h">❚❚ 2 Charts (Split)</div>
+                        <div class="dropdown-item" data-layout="2v">〓 2 Charts (Stack)</div>
+                        <div class="dropdown-item" data-layout="4">▦ 4 Charts (Quad)</div>
+                    </div>
+                </div>
+
+                <!-- Multi-Strategy Coin & Options Call/Put Scanner -->
+                <button id="btn-open-scanner" class="btn-secondary btn-scanner-glow" title="Scan All Coins & Stocks Across 5 Strategies for Best CALL / PUT Setups">
+                    <span>🎯 Scanner</span>
+                </button>
             </div>
 
             <div class="topbar-right">
                 <!-- Indian Market & F&O Quick Tools -->
-                <button id="btn-open-option-chain" class="btn-secondary btn-opt-chain" title="View Real-Time Black-Scholes Option Chain Matrix (Greeks, PCR, Max Pain)">
-                    <span>📊 Option Chain</span>
+                <button id="btn-open-option-chain" class="btn-secondary btn-opt-chain" title="Black-Scholes Option Chain Matrix (Greeks, PCR, Max Pain)">
+                    <span>📊 Chain</span>
                 </button>
-                <button id="btn-open-trending" class="btn-secondary btn-trending-menu" title="Indian Market Trending Screener (Top Up, Top Down, Low Price High Volume)">
+                <button id="btn-open-trending" class="btn-secondary btn-trending-menu" title="NSE/BSE Trending Screener">
                     <span>🔥 Trending</span>
                 </button>
-                <button id="btn-open-kotak-modal" class="btn-secondary btn-kotak-neo" title="Kotak Neo Trade API 2FA & Credentials Setup">
-                    <span>🔑 Kotak Neo</span>
+                <button id="btn-open-kotak-modal" class="btn-secondary btn-kotak-neo" title="Kotak Neo 2FA & Relay">
+                    <span>🔑 Kotak</span>
                 </button>
 
-                <button id="btn-fullscreen" class="btn-secondary" title="Toggle Fullscreen Mode (F11)">
-                    <span>⛶ Fullscreen</span>
-                </button>
-                <button id="btn-toggle-pine" class="btn-secondary" title="Open Pine Script v5 IDE">
-                    <span>⚡ Pine Script v5 IDE</span>
+                <button id="btn-toggle-pine" class="btn-secondary" title="Open Pine Script v5 IDE & Strategy Tester">
+                    <span>⚡ Pine</span>
                 </button>
                 <button id="btn-toggle-order" class="btn-secondary" title="Toggle Order Entry & Depth Panel">
-                    <span>📝 Trade Panel</span>
+                    <span>📝 Trade</span>
                 </button>
                 
                 <!-- Account Balance Pill -->
                 <div class="account-pill">
-                    <span class="account-label">EQUITY:</span>
+                    <span class="account-label">EQ:</span>
                     <span id="account-equity" class="account-val">$10,000.00</span>
                 </div>
+
+                <button id="btn-fullscreen" class="btn-secondary btn-icon-only" title="Toggle Fullscreen Mode (F11)">⛶</button>
             </div>
         </header>
 
@@ -316,6 +327,9 @@
                                         <option value="supertrend">Supertrend (10, 3) + Momentum</option>
                                         <option value="bollinger">Bollinger Bands Mean Reversion</option>
                                         <option value="smc">Institutional SMC Orderflow</option>
+                                        <option value="macd_vwap">MACD + VWAP Call/Put Flow</option>
+                                        <option value="rsi_bb_sniper">RSI + BB Call/Put Sniper</option>
+                                        <option value="liquidity_sweep">Liquidity & Possible SL Zones</option>
                                     </optgroup>
                                     <optgroup label="My Saved Scripts" id="pine-saved-scripts-group">
                                     </optgroup>
@@ -758,12 +772,102 @@
         </div>
     </div>
 
+    <!-- Multi-Strategy Coin & Options CALL / PUT Scanner Modal -->
+    <div id="strategy-scanner-modal" class="custom-script-modal hidden">
+        <div class="modal-backdrop" id="scanner-backdrop"></div>
+        <div class="modal-card scanner-modal-card">
+            <div class="modal-header">
+                <div class="modal-header-left">
+                    <span class="modal-icon">🎯</span>
+                    <div>
+                        <h3>AI Multi-Strategy Scanner <span class="scanner-mode-badge" id="scanner-mode-badge">CRYPTO</span></h3>
+                        <div class="chain-subtitle">Scans all active assets across 5 strategies (EMA Ribbon, Supertrend, BB+RSI, MACD+VWAP, Liquidity Sweep) for best CALL / PUT trades</div>
+                    </div>
+                </div>
+                <div class="chain-controls-right">
+                    <div class="chain-select-wrap">
+                        <label>TF:</label>
+                        <select id="scanner-tf-select" class="modal-select">
+                            <option value="5m">5m</option>
+                            <option value="15m" selected>15m</option>
+                            <option value="1h">1H</option>
+                            <option value="4h">4H</option>
+                        </select>
+                    </div>
+                    <button class="btn-primary btn-sm" id="btn-run-scanner">↻ Rescan All</button>
+                    <button class="modal-close-btn" id="btn-close-scanner">✕</button>
+                </div>
+            </div>
+
+            <div class="scanner-summary-ribbon" id="scanner-summary-ribbon">
+                <div class="scanner-stat-card">
+                    <span class="s-label">Scanned Assets</span>
+                    <b id="scan-stat-total">0</b>
+                </div>
+                <div class="scanner-stat-card call">
+                    <span class="s-label">Best CALL (Buy / CE)</span>
+                    <b id="scan-stat-calls">0</b>
+                </div>
+                <div class="scanner-stat-card put">
+                    <span class="s-label">Best PUT (Sell / PE)</span>
+                    <b id="scan-stat-puts">0</b>
+                </div>
+                <div class="scanner-stat-card pick">
+                    <span class="s-label">Top Trade Pick</span>
+                    <b id="scan-stat-top">--</b>
+                </div>
+            </div>
+
+            <div class="trending-toolbar">
+                <div class="trending-filter-tabs" id="scanner-filter-tabs">
+                    <button class="trend-tab-btn active" data-sfilter="all">🎯 All Setups</button>
+                    <button class="trend-tab-btn" data-sfilter="CALL">🟢 Best CALL (Long / CE)</button>
+                    <button class="trend-tab-btn" data-sfilter="PUT">🔴 Best PUT (Short / PE)</button>
+                    <button class="trend-tab-btn" data-sfilter="high">⚡ High Conviction (70%+)</button>
+                </div>
+                <div class="trending-search-wrap">
+                    <input type="text" id="scanner-search-input" placeholder="Filter symbol or strategy...">
+                </div>
+            </div>
+
+            <div class="scanner-progress-wrap hidden" id="scanner-progress-wrap">
+                <div class="scanner-progress-bar" id="scanner-progress-bar"></div>
+                <span class="scanner-progress-text" id="scanner-progress-text">Scanning markets...</span>
+            </div>
+
+            <div class="trending-table-container">
+                <table class="trending-table scanner-table">
+                    <thead>
+                        <tr>
+                            <th>ASSET</th>
+                            <th>BEST TRADE SIGNAL</th>
+                            <th class="text-center">SCORE</th>
+                            <th>ACTIVE STRATEGIES</th>
+                            <th class="text-right">ENTRY PRICE</th>
+                            <th class="text-right">TARGET (TP)</th>
+                            <th class="text-right">STOP LOSS (SL)</th>
+                            <th class="text-center">RSI</th>
+                            <th class="text-center">ACTION</th>
+                        </tr>
+                    </thead>
+                    <tbody id="scanner-table-tbody">
+                        <tr><td colspan="9" style="text-align:center; padding:32px; color:var(--text-secondary);">Click <b>"↻ Rescan All"</b> to scan markets for CALL / PUT setups.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="chain-modal-footer">
+                <span>💡 Click <b>"Chart"</b> to load setup & indicators on screen, or <b>"Execute CALL / PUT"</b> to arm bracket TP/SL immediately.</span>
+            </div>
+        </div>
+    </div>
+
     <!-- Live Toast Alert Container -->
     <div id="chart-toast-container" class="chart-toast-container"></div>
 
     <!-- Scripts -->
-    <script src="chart3d.js?v=2.3.0"></script>
-    <script src="pine_editor.js?v=2.3.0"></script>
-    <script src="app.js?v=2.3.0"></script>
+    <script src="chart3d.js?v=2.4.0"></script>
+    <script src="pine_editor.js?v=2.4.0"></script>
+    <script src="app.js?v=2.4.0"></script>
 </body>
 </html>

@@ -30,10 +30,20 @@ class OpenChart3D {
         this.currency = (this.options && this.options.currency) || '$';
 
         this.candles = [];
+        this.timeIndexMap = new Map();
         this.indicators = [];
+        this.quickIndicators = [];
+        this.pineIndicators = [];
         this.signals = [];
         this.orders = [];
         this.positions = [];
+
+        // Kinetic Panning Inertia
+        this.velocityX = 0;
+        this.velocityY = 0;
+        this._lastPanX = 0;
+        this._lastPanY = 0;
+        this._lastPanTs = 0;
 
         // Drawing & Marking Tools State
         this.activeTool = 'cursor'; // cursor, trendline, ray, extended, horizontal, horizontal_ray, vertical, channel, fibonacci, fib_extension, rectangle, circle, brush, arrow, text, price_label, long_position, short_position, measure
@@ -77,6 +87,10 @@ class OpenChart3D {
     init() {
         this.resize();
         window.addEventListener('resize', () => this.resize());
+        if (typeof ResizeObserver !== 'undefined' && this.canvas.parentElement) {
+            this._resizeObserver = new ResizeObserver(() => this.resize());
+            this._resizeObserver.observe(this.canvas.parentElement);
+        }
 
         // Mouse Events
         this.canvas.addEventListener('mousedown', (e) => this.onMouseDown(e));
@@ -97,21 +111,23 @@ class OpenChart3D {
     }
 
     resize() {
+        if (!this.canvas || !this.canvas.parentElement) return;
         const rect = this.canvas.parentElement.getBoundingClientRect();
-        this.dpr = window.devicePixelRatio || 1;
+        if (rect.width <= 0 || rect.height <= 0) return;
+        this.dpr = Math.min(2.5, window.devicePixelRatio || 1);
         this.width = rect.width;
         this.height = rect.height;
-        this.canvas.width = this.width * this.dpr;
-        this.canvas.height = this.height * this.dpr;
-        this.ctx.scale(this.dpr, this.dpr);
+        this.canvas.width = Math.round(this.width * this.dpr);
+        this.canvas.height = Math.round(this.height * this.dpr);
+        this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
 
         // Layout zones
-        this.priceAxisWidth = 85;
-        this.timeAxisHeight = 34; // Dedicated bottom timeline height
+        this.priceAxisWidth = this.width < 520 ? 72 : 85;
+        this.timeAxisHeight = 32; // Dedicated bottom timeline height
 
-        this.hasSubpane = this.indicators.some(ind => ind.pane === 'rsi' || ind.pane === 'macd');
-        this.subpaneHeight = this.hasSubpane ? 90 : 0;
-        this.volumeHeight = Math.min(75, this.height * 0.14);
+        this.hasSubpane = this.indicators.some(ind => ind.pane === 'rsi' || ind.pane === 'macd' || ind.pane === 'sub');
+        this.subpaneHeight = this.hasSubpane ? Math.min(100, Math.max(76, Math.round(this.height * 0.2))) : 0;
+        this.volumeHeight = Math.min(72, this.height * 0.13);
 
         this.chartHeight = this.height - this.timeAxisHeight - this.subpaneHeight;
         this.mainChartHeight = this.chartHeight - this.volumeHeight;
@@ -140,6 +156,29 @@ class OpenChart3D {
         return prefix + val.toFixed(8);
     }
 
+    _rebuildTimeIndex() {
+        this.timeIndexMap = new Map();
+        for (let i = 0; i < this.candles.length; i++) {
+            this.timeIndexMap.set(this.candles[i].time, i);
+        }
+    }
+
+    _resolveCandleIdx(ptTime) {
+        if (!this.candles.length) return -1;
+        const exact = this.timeIndexMap ? this.timeIndexMap.get(ptTime) : undefined;
+        if (exact !== undefined) return exact;
+        // Binary search fallback if slight timestamp delta exists
+        let lo = 0, hi = this.candles.length - 1;
+        while (lo <= hi) {
+            const mid = (lo + hi) >> 1;
+            const ct = this.candles[mid].time;
+            if (ct === ptTime) return mid;
+            if (ct < ptTime) lo = mid + 1;
+            else hi = mid - 1;
+        }
+        return -1;
+    }
+
     setCandles(candles, forceReset = true, timeframe = null, symbol = null) {
         this.isLoading = false;
         this.loadingSymbol = '';
@@ -148,6 +187,7 @@ class OpenChart3D {
             this.symbol = String(symbol).replace('B-', '').replace('_USDT', '').replace('USDT', '').replace('_', '').toUpperCase();
         }
         this.candles = candles || [];
+        this._rebuildTimeIndex();
         if (forceReset || this.autoScale || this.offsetX === 0) {
             this.resetView();
         } else {
@@ -195,6 +235,7 @@ class OpenChart3D {
             if (this.candles.length > 500) {
                 this.candles.shift();
             }
+            this._rebuildTimeIndex();
 
             // Auto advance viewport if user was pinned near the right edge
             const step = this.candleWidth + this.candleGap;
@@ -228,13 +269,28 @@ class OpenChart3D {
         return 3600 * 1000;
     }
 
-    setIndicators(indicators) {
-        this.indicators = indicators || [];
-        this.hasSubpane = this.indicators.some(ind => ind.pane === 'rsi' || ind.pane === 'macd');
-        this.subpaneHeight = this.hasSubpane ? 90 : 0;
+    _syncMergedIndicators() {
+        this.indicators = [...(this.quickIndicators || []), ...(this.pineIndicators || [])];
+        this.hasSubpane = this.indicators.some(ind => ind.pane === 'rsi' || ind.pane === 'macd' || ind.pane === 'sub');
+        this.subpaneHeight = this.hasSubpane ? Math.min(100, Math.max(76, Math.round(this.height * 0.2))) : 0;
         this.chartHeight = this.height - this.timeAxisHeight - this.subpaneHeight;
         this.mainChartHeight = this.chartHeight - this.volumeHeight;
         this.render();
+    }
+
+    setQuickIndicators(indicators) {
+        this.quickIndicators = indicators || [];
+        this._syncMergedIndicators();
+    }
+
+    setPineIndicators(indicators) {
+        this.pineIndicators = indicators || [];
+        this._syncMergedIndicators();
+    }
+
+    setIndicators(indicators) {
+        this.pineIndicators = indicators || [];
+        this._syncMergedIndicators();
     }
 
     setSignals(signals) {
@@ -870,38 +926,88 @@ class OpenChart3D {
         this.indicators.filter(ind => ind.pane === 'main' || !ind.pane).forEach(ind => {
             if (!ind.data || !ind.data.length) return;
             ctx.save();
-            ctx.strokeStyle = ind.color || '#00f0ff';
             ctx.lineWidth = ind.linewidth || 2;
-            ctx.shadowColor = ind.color || '#00f0ff';
-            ctx.shadowBlur = 4;
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
+            if (ind.dashed) ctx.setLineDash([5, 4]);
 
-            ctx.beginPath();
-            let started = false;
-            let prevX = null;
-            let prevY = null;
+            // Optional Bollinger Band cloud fill between upper and lower pair
+            if (ind.fillPairData && ind.fillPairData.length) {
+                const upperPts = [];
+                const lowerPts = [];
+                ind.data.forEach(pt => {
+                    const idx = this._resolveCandleIdx(pt.time);
+                    if (idx >= 0) upperPts.push({ x: this.candleToX(idx) + this.candleWidth / 2, y: this.priceToY(pt.value) });
+                });
+                ind.fillPairData.forEach(pt => {
+                    const idx = this._resolveCandleIdx(pt.time);
+                    if (idx >= 0) lowerPts.push({ x: this.candleToX(idx) + this.candleWidth / 2, y: this.priceToY(pt.value) });
+                });
+                if (upperPts.length > 1 && lowerPts.length > 1) {
+                    ctx.beginPath();
+                    ctx.moveTo(upperPts[0].x, upperPts[0].y);
+                    for (let i = 1; i < upperPts.length; i++) ctx.lineTo(upperPts[i].x, upperPts[i].y);
+                    for (let i = lowerPts.length - 1; i >= 0; i--) ctx.lineTo(lowerPts[i].x, lowerPts[i].y);
+                    ctx.closePath();
+                    ctx.fillStyle = ind.fillColor || 'rgba(168, 85, 247, 0.08)';
+                    ctx.fill();
+                }
+            }
 
-            ind.data.forEach(pt => {
-                const candleIdx = this.candles.findIndex(c => c.time === pt.time);
-                if (candleIdx >= 0) {
+            // Per-point multi-color segment rendering (e.g., Supertrend green/red) or standard line
+            const hasPerPointColor = ind.data.some(pt => pt.color);
+            if (hasPerPointColor) {
+                let prev = null;
+                for (let i = 0; i < ind.data.length; i++) {
+                    const pt = ind.data[i];
+                    const candleIdx = this._resolveCandleIdx(pt.time);
+                    if (candleIdx < 0) continue;
                     const x = this.candleToX(candleIdx) + this.candleWidth / 2;
                     const y = this.priceToY(pt.value);
-                    if (!started) {
-                        ctx.moveTo(x, y);
-                        started = true;
-                    } else {
+                    const segColor = pt.color || ind.color || '#00e676';
+
+                    if (prev && prev.color === segColor) {
+                        ctx.beginPath();
+                        ctx.strokeStyle = segColor;
+                        ctx.moveTo(prev.x, prev.y);
                         if (ind.style === 'stepline') {
-                            ctx.lineTo(x, prevY !== null ? prevY : y);
-                            ctx.lineTo(x, y);
+                            ctx.lineTo(x, prev.y);
+                        }
+                        ctx.lineTo(x, y);
+                        ctx.stroke();
+                    }
+                    prev = { x, y, color: segColor };
+                }
+            } else {
+                ctx.strokeStyle = ind.color || '#00f0ff';
+                ctx.shadowColor = ind.color || '#00f0ff';
+                ctx.shadowBlur = 3;
+                ctx.beginPath();
+                let started = false;
+                let prevIdx = -1;
+                let prevY = null;
+
+                for (let i = 0; i < ind.data.length; i++) {
+                    const pt = ind.data[i];
+                    const candleIdx = this._resolveCandleIdx(pt.time);
+                    if (candleIdx >= 0) {
+                        const x = this.candleToX(candleIdx) + this.candleWidth / 2;
+                        const y = this.priceToY(pt.value);
+                        if (!started || (prevIdx >= 0 && candleIdx - prevIdx > 2)) {
+                            ctx.moveTo(x, y);
+                            started = true;
                         } else {
+                            if (ind.style === 'stepline') {
+                                ctx.lineTo(x, prevY !== null ? prevY : y);
+                            }
                             ctx.lineTo(x, y);
                         }
+                        prevIdx = candleIdx;
+                        prevY = y;
                     }
-                    prevX = x;
-                    prevY = y;
                 }
-            });
-
-            ctx.stroke();
+                ctx.stroke();
+            }
             ctx.restore();
         });
     }
@@ -909,58 +1015,149 @@ class OpenChart3D {
     drawSubpane(ctx) {
         const subpaneY = this.height - this.timeAxisHeight - this.subpaneHeight;
         const chartRight = this.width - this.priceAxisWidth;
+        const padTop = 8;
+        const padBot = 6;
+        const usableH = Math.max(20, this.subpaneHeight - padTop - padBot);
 
         ctx.save();
         ctx.fillStyle = '#080a10';
         ctx.fillRect(0, subpaneY, chartRight, this.subpaneHeight);
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
         ctx.beginPath();
         ctx.moveTo(0, subpaneY);
         ctx.lineTo(chartRight, subpaneY);
         ctx.stroke();
 
-        const y70 = subpaneY + (this.subpaneHeight * 0.3);
-        const y30 = subpaneY + (this.subpaneHeight * 0.7);
-
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
-        ctx.setLineDash([3, 3]);
+        // Clip inside subpane area
         ctx.beginPath();
-        ctx.moveTo(0, y70);
-        ctx.lineTo(chartRight, y70);
-        ctx.moveTo(0, y30);
-        ctx.lineTo(chartRight, y30);
-        ctx.stroke();
-        ctx.setLineDash([]);
+        ctx.rect(0, subpaneY, chartRight, this.subpaneHeight);
+        ctx.clip();
 
-        ctx.fillStyle = this.options.textColor;
-        ctx.font = '10px Inter, monospace';
-        ctx.fillText('70', chartRight + 5, y70 + 3);
-        ctx.fillText('30', chartRight + 5, y30 + 3);
+        const rsiInds = this.indicators.filter(ind => ind.pane === 'rsi');
+        const macdInds = this.indicators.filter(ind => ind.pane === 'macd');
+        const genericSubInds = this.indicators.filter(ind => ind.pane === 'sub');
 
-        this.indicators.filter(ind => ind.pane === 'rsi').forEach(ind => {
-            if (!ind.data || !ind.data.length) return;
-            ctx.strokeStyle = ind.color || '#e040fb';
-            ctx.lineWidth = 1.5;
+        // 1. Render RSI (0-100) Oscillator
+        if (rsiInds.length) {
+            const y70 = subpaneY + padTop + (usableH * 0.3);
+            const y30 = subpaneY + padTop + (usableH * 0.7);
+
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.14)';
+            ctx.setLineDash([3, 3]);
             ctx.beginPath();
-            let started = false;
+            ctx.moveTo(0, y70); ctx.lineTo(chartRight, y70);
+            ctx.moveTo(0, y30); ctx.lineTo(chartRight, y30);
+            ctx.stroke();
+            ctx.setLineDash([]);
 
-            ind.data.forEach(pt => {
-                const candleIdx = this.candles.findIndex(c => c.time === pt.time);
-                if (candleIdx >= 0) {
-                    const x = this.candleToX(candleIdx) + this.candleWidth / 2;
-                    const valRatio = (100 - pt.value) / 100;
-                    const y = subpaneY + (valRatio * this.subpaneHeight);
-                    if (!started) {
-                        ctx.moveTo(x, y);
-                        started = true;
-                    } else {
-                        ctx.lineTo(x, y);
+            rsiInds.forEach(ind => {
+                if (!ind.data || !ind.data.length) return;
+                ctx.strokeStyle = ind.color || '#e040fb';
+                ctx.lineWidth = ind.linewidth || 1.6;
+                ctx.beginPath();
+                let started = false;
+                ind.data.forEach(pt => {
+                    const candleIdx = this._resolveCandleIdx(pt.time);
+                    if (candleIdx >= 0) {
+                        const x = this.candleToX(candleIdx) + this.candleWidth / 2;
+                        const valRatio = Math.max(0, Math.min(1, (100 - pt.value) / 100));
+                        const y = subpaneY + padTop + (valRatio * usableH);
+                        if (!started) { ctx.moveTo(x, y); started = true; }
+                        else ctx.lineTo(x, y);
                     }
+                });
+                ctx.stroke();
+            });
+        }
+
+        // 2. Render MACD (12, 26, 9) + Histogram + Generic Auto-Scaled Subpane Indicators
+        const autoInds = [...macdInds, ...genericSubInds];
+        if (autoInds.length) {
+            let minV = Infinity, maxV = -Infinity;
+            autoInds.forEach(ind => {
+                (ind.data || []).forEach(pt => {
+                    if (isFinite(pt.value)) {
+                        if (pt.value < minV) minV = pt.value;
+                        if (pt.value > maxV) maxV = pt.value;
+                    }
+                });
+            });
+            if (minV === Infinity || maxV === -Infinity) { minV = -1; maxV = 1; }
+            if (macdInds.length) { minV = Math.min(minV, 0); maxV = Math.max(maxV, 0); }
+            const span = Math.max(1e-8, maxV - minV);
+            const valToSubY = (v) => subpaneY + padTop + usableH - (((v - minV) / span) * usableH);
+
+            if (macdInds.length) {
+                const zeroY = valToSubY(0);
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
+                ctx.setLineDash([2, 3]);
+                ctx.beginPath();
+                ctx.moveTo(0, zeroY);
+                ctx.lineTo(chartRight, zeroY);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+
+            autoInds.forEach(ind => {
+                if (!ind.data || !ind.data.length) return;
+                if (ind.style === 'histogram') {
+                    const zeroY = valToSubY(0);
+                    const barW = Math.max(2, this.candleWidth * 0.65);
+                    ind.data.forEach(pt => {
+                        const candleIdx = this._resolveCandleIdx(pt.time);
+                        if (candleIdx >= 0) {
+                            const x = this.candleToX(candleIdx) + (this.candleWidth - barW) / 2;
+                            const y = valToSubY(pt.value);
+                            ctx.fillStyle = pt.value >= 0 ? 'rgba(0, 230, 118, 0.55)' : 'rgba(255, 23, 68, 0.55)';
+                            ctx.fillRect(x, Math.min(y, zeroY), barW, Math.max(1, Math.abs(y - zeroY)));
+                        }
+                    });
+                } else {
+                    ctx.strokeStyle = ind.color || '#00f0ff';
+                    ctx.lineWidth = ind.linewidth || 1.5;
+                    ctx.beginPath();
+                    let started = false;
+                    ind.data.forEach(pt => {
+                        const candleIdx = this._resolveCandleIdx(pt.time);
+                        if (candleIdx >= 0) {
+                            const x = this.candleToX(candleIdx) + this.candleWidth / 2;
+                            const y = valToSubY(pt.value);
+                            if (!started) { ctx.moveTo(x, y); started = true; }
+                            else ctx.lineTo(x, y);
+                        }
+                    });
+                    ctx.stroke();
                 }
             });
-            ctx.stroke();
-        });
+        }
+        ctx.restore();
 
+        // Draw Subpane Axis Labels outside clip
+        ctx.save();
+        ctx.fillStyle = '#0a0e17';
+        ctx.fillRect(chartRight, subpaneY, this.priceAxisWidth, this.subpaneHeight);
+        ctx.strokeStyle = '#1e293b';
+        ctx.beginPath();
+        ctx.moveTo(chartRight, subpaneY);
+        ctx.lineTo(chartRight, subpaneY + this.subpaneHeight);
+        ctx.stroke();
+
+        ctx.fillStyle = this.options.textColor;
+        ctx.font = 'bold 10px Inter, monospace';
+        if (rsiInds.length) {
+            const lastRsi = rsiInds[0].data?.[rsiInds[0].data.length - 1]?.value;
+            ctx.fillText('70', chartRight + 6, subpaneY + padTop + usableH * 0.3 + 3);
+            ctx.fillText('30', chartRight + 6, subpaneY + padTop + usableH * 0.7 + 3);
+            if (isFinite(lastRsi)) {
+                ctx.fillStyle = '#e040fb';
+                ctx.fillText(`RSI ${lastRsi.toFixed(1)}`, chartRight + 6, subpaneY + 14);
+            }
+        } else if (macdInds.length) {
+            const macdMain = macdInds.find(x => x.title === 'MACD') || macdInds[0];
+            const lastM = macdMain?.data?.[macdMain.data.length - 1]?.value;
+            ctx.fillStyle = '#00f0ff';
+            ctx.fillText(isFinite(lastM) ? `MACD ${lastM.toFixed(1)}` : 'MACD', chartRight + 6, subpaneY + 14);
+        }
         ctx.restore();
     }
 
@@ -968,7 +1165,10 @@ class OpenChart3D {
         if (!this.signals.length) return;
 
         this.signals.forEach(sig => {
-            const candleIdx = this.candles.findIndex(c => c.time === sig.time || Math.abs(c.time - sig.time) < 3600000);
+            let candleIdx = this._resolveCandleIdx(sig.time);
+            if (candleIdx < 0) {
+                candleIdx = this.candles.findIndex(c => Math.abs(c.time - sig.time) < 3600000);
+            }
             if (candleIdx < 0) return;
 
             const x = this.candleToX(candleIdx) + this.candleWidth / 2;
@@ -1653,6 +1853,13 @@ class OpenChart3D {
 
     startRenderLoop() {
         const loop = () => {
+            if (!this.isDraggingChart && (Math.abs(this.velocityX) > 0.25 || Math.abs(this.velocityY) > 0.25)) {
+                this.offsetX = Math.max(0, this.offsetX + this.velocityX);
+                this.offsetY += this.velocityY;
+                this.velocityX *= 0.88;
+                this.velocityY *= 0.88;
+                this.autoScale = false;
+            }
             this.render();
             requestAnimationFrame(loop);
         };
@@ -1718,8 +1925,13 @@ class OpenChart3D {
 
         // 5. Default Chart Panning (Free 2D Movement)
         this.isDraggingChart = true;
+        this.velocityX = 0;
+        this.velocityY = 0;
         this.dragStartX = x;
         this.dragStartY = y;
+        this._lastPanX = x;
+        this._lastPanY = y;
+        this._lastPanTs = performance.now();
         this.initialOffsetX = this.offsetX;
         this.initialOffsetY = this.offsetY;
         this.canvas.style.cursor = 'grabbing';
@@ -1831,14 +2043,23 @@ class OpenChart3D {
             return;
         }
 
-        // 5. Chart Panning (Free 2D Movement)
+        // 5. Chart Panning (Free 2D Movement with Velocity Tracking)
         if (this.isDraggingChart) {
+            const nowTs = performance.now();
+            const dt = Math.max(1, nowTs - (this._lastPanTs || nowTs));
+            if (dt < 80) {
+                this.velocityX = Math.max(-45, Math.min(45, (this._lastPanX - this.mousePos.x) * (16 / dt) * 0.55));
+                this.velocityY = Math.max(-45, Math.min(45, (this.mousePos.y - this._lastPanY) * (16 / dt) * 0.55));
+            }
+            this._lastPanX = this.mousePos.x;
+            this._lastPanY = this.mousePos.y;
+            this._lastPanTs = nowTs;
+
             const deltaX = this.dragStartX - this.mousePos.x;
             const deltaY = this.mousePos.y - this.dragStartY;
             this.offsetX = Math.max(0, this.initialOffsetX + deltaX);
             this.offsetY = this.initialOffsetY + deltaY;
             this.autoScale = false;
-            this.render();
             return;
         }
 
